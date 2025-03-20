@@ -6,6 +6,13 @@ API_KEY = "AIzaSyDWnxUDq9qjCXTQt38OLi6a2l1svGt-owM"  # Clave de API
 
 st.title("Fabus calculator")
 
+#Validation for multi type
+opcion_stops = st.selectbox("Select Customer:", ["Fabuwood Cabinetry", "Other"])
+if opcion_stops == "Fabuwood Cabinetry":
+    variable_stops = 150
+elif opcion_stops == "Other":
+    variable_stops = 100
+
 # Inputs para el cálculo
 DAT_miles = st.number_input("Enter DAT miles:", min_value=1) 
 Mark_up = st.slider("Mark-up (%)", 0.0, 1.0, 0.1)
@@ -57,7 +64,7 @@ def get_route_info(locations):
         stops = len(locations) - 2  
         increase_per_stop = round((stops / 4) * 150, 2) if stops > 4 else 0
 
-        total_additions = stops * 150
+        total_additions = stops * variable_stops
 
         Add_ins = (RPM * total_distance_miles) + total_additions
 
@@ -101,5 +108,6 @@ if st.button("Calcular"):
         st.error("Ingresa al menos dos ubicaciones.")
     else:
         get_route_info(locations_input)
+
 
 
