@@ -103,7 +103,7 @@ def parse_locations():
 locations_input = parse_locations()
 
 
-if st.button("Calcular"):
+if st.button("Calculate"):
     if len(locations_input) < 2:
         st.error("Ingresa al menos dos ubicaciones.")
     else:
