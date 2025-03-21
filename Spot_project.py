@@ -91,11 +91,11 @@ def parse_locations():
 
     # Verificar que el usuario ingresó texto
     if input_text:
-        pattern = re.compile(r"(?:Add time)?([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})\s*(\d{5})")
+        pattern = re.compile(r"(?:Add time\s+)?([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})(?:\s*(\d{5}))?")
         matches = pattern.findall(input_text)
 
         # Lista de ubicaciones formateadas
-        locations_list = [f"{zip_code}, {city.strip()}, {state}" for city, state, zip_code in matches]
+        locations_list = [f"{zip_code if zip_code else ""}, {city.strip()}, {state}" for city, state, zip_code in matches]
         return locations_list
     return []
 
@@ -108,6 +108,7 @@ if st.button("Calculate"):
         st.error("Ingresa al menos dos ubicaciones.")
     else:
         get_route_info(locations_input)
+
 
 
 
