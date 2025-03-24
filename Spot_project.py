@@ -4,7 +4,7 @@ import streamlit as st
 
 API_KEY = "AIzaSyDWnxUDq9qjCXTQt38OLi6a2l1svGt-owM"  # Clave de API
 
-st.title("Fabus calculator")
+st.title("Multis Spot: Pricing Department")
 
 #Validation for multi type
 opcion_stops = st.selectbox("Select Customer:", ["Fabuwood Cabinetry", "Other"])
