@@ -59,10 +59,10 @@ def get_route_info(locations):
         Google_days = total_distance_miles / 600  
 
         layover_count = max(0, int(Google_days) - int(Days_miles))  
-        layover = layover_count * 200  
+        layover = layover_count * 125  
 
         stops = len(locations) - 2  
-        increase_per_stop = round((stops / 4) * 150, 2) if stops > 4 else 0
+        increase_per_stop = round((stops / 4) * 100, 2) if stops > 4 else 0
 
         total_additions = stops * variable_stops
 
@@ -72,12 +72,12 @@ def get_route_info(locations):
 
         st.subheader("----- Calculation -----")
         st.write(f"Google API miles: {total_distance_miles}")
-        st.write(f"Layover count: {layover_count} (x $200 per day)")
+        st.write(f"Layover count: {layover_count} (x $125 per day)")
         st.write(f"Layover total: ${layover}")
         st.write(f"Stops: {stops}")
         st.write(f"Increase per stop: ${increase_per_stop}")
-        st.write(f"Total additions: ${total_additions}")
-        st.write(f"Final Rate: ${Final_Rate}")
+        st.write(f"Extra stops: ${total_additions}")
+        st.write(f"Sell Rate: ${Final_Rate}")
 
     except Exception as e:
         return st.error(f"Error en la API: {str(e)}")
