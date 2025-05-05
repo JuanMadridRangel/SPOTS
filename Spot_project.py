@@ -59,10 +59,15 @@ def get_route_info(locations):
         Google_days = total_distance_miles / 600  
 
         layover_count = max(0, int(Google_days) - int(Days_miles))  
-        layover = layover_count * 125  
+ 
+        stops = len(locations) - 2 
 
-        stops = len(locations) - 2  
-        increase_per_stop = round((stops / 4) * 100, 2) if stops > 4 else 0
+        if opcion_stops == "Fabuwood Cabinetry":
+            layover = layover_count * 125
+            increase_per_stop = round((stops / 4) * 100, 2) if stops > 4 else 0
+        else:
+            layover = layover_count * 200
+            increase_per_stop = round((stops / 4) * 150, 2) if stops > 4 else 0 
 
         total_additions = stops * variable_stops
 
@@ -108,6 +113,7 @@ if st.button("Calculate"):
         st.error("Ingresa al menos dos ubicaciones.")
     else:
         get_route_info(locations_input)
+
 
 
 
