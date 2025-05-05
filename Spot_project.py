@@ -15,7 +15,7 @@ elif opcion_stops == "Other":
 
 # Inputs para el cálculo
 DAT_miles = st.number_input("Enter DAT miles:", min_value=1) 
-Mark_up = st.slider("Mark-up (%)", 0.0, 1.0, 0.1)
+Mark_up = st.slider("Mark-up (%)", 0.0, 1.0, 0.08)
 DAT_average = st.number_input("Enter DAT average:", min_value=0.0)
 
 # Validación de Mark-up
