@@ -8,8 +8,27 @@ from datetime import datetime
 # -----------------------------
 # CONNECTIONS / CONFIG IMPORTS
 # -----------------------------
-from Access import API_KEY, ORG_PASSWORD, ORG_USERNAME, ACCOUNT_USERNAME, user_url, org_url, url_spot, base_url,url_forecast, url_MCI, GS_CLIENT_ID, GS_CLIENT_SECRET, GS_AUTH_URL, GS_PREDICT_URL
+from Access import user_url, org_url, url_spot, base_url,url_forecast, url_MCI, GS_CLIENT_ID, GS_AUTH_URL, GS_PREDICT_URL
 from utils_parse import parse_location_string_spots,parse_location_string_contract, parse_locations, round_to_nearest_5
+
+# -----------------------------
+# Google Maps API Credentials
+# -----------------------------
+API_KEY= st.secrets["API_KEY"]
+
+
+# -----------------------------
+# DAT API Credentials
+# -----------------------------
+ORG_USERNAME = st.secrets["ORG_USERNAME"]
+ORG_PASSWORD = st.secrets["ORG_PASSWORD"]
+ACCOUNT_USERNAME = st.secrets["ACCOUNT_USERNAME"]
+
+
+# -----------------------------
+# GREENSCREENS API URL
+# -----------------------------
+GS_CLIENT_SECRET = st.secrets["GS_CLIENT_SECRET"] # client_secret
 
 # -----------------------------
 # FUNCTIONS: DAT AUTHENTICATION
