@@ -691,22 +691,28 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
             unsafe_allow_html=True
             )
 
+    total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 2)
     with st.container():
         st.markdown(
             f"""
-            <div style="margin-top:10px; padding:15px; background-color:#fff3cd; border-left:6px solid #ffecb5; border-radius:8px;">
-            <b style="font-size:15px;">Chaos Metrics</b><br><br>
-            <b>Volatility:</b> {chaos_data['volatility']}<br>
-            <b>Skew:</b> {chaos_data['skew']}<br>
-            <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
-            <b>Skew Premium:</b> ${chaos_data['skew_premium']}<br>
-            <b>Chaos Premium:</b> <b>${chaos_data['chaos_premium']}</b><br>
-            <b>Risk Level:</b> <span style="color: {'red' if chaos_data['risk_level']=="High Risk" else 'orange' if chaos_data['risk_level']=="Moderate Risk" else 'green'};">
-            {chaos_data['risk_level']}</span>
+            <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
+                        border-left:6px solid #ffecb5; border-radius:8px;">
+                <b style="font-size:15px;">Chaos Metrics & Markup Impact</b><br><br>
+                <b>Volatility:</b> {chaos_data['volatility']}<br>
+                <b>Skew:</b> {chaos_data['skew']}<br>
+                <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
+                <b>Skew Premium:</b> ${chaos_data['skew_premium']}<br>
+                <b>Chaos Premium:</b> <b>${chaos_data['chaos_premium']}</b><br>
+                <b>Risk Level:</b> <span style="color: {'red' if chaos_data['risk_level']=="High Risk" else 'orange' if chaos_data['risk_level']=="Moderate Risk" else 'green'};">
+                {chaos_data['risk_level']}</span><br><br>
+                <b>Total Markup %:</b>
+                <span style="font-size:16px; color:#003366;"><b>{total_markup_pct}%</b></span>
             </div>
             """,
             unsafe_allow_html=True
         )
+
+
 
 
 # -----------------------------
@@ -752,7 +758,7 @@ def get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence):
 # -----------------------------
 # CALCULATE CHAOS PREMIUMS 
 # -----------------------------
-def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
+def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles, adjusted_base_rate):
     if not all([DAT_avg, DAT_high, DAT_low]):
         return {
             "volatility": 0,
@@ -763,21 +769,11 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
             "risk_level": "Unknown"
         }
 
-    # --- Volatility ---
-    volatility = (DAT_high - DAT_low) / DAT_avg if DAT_avg != 0 else 0
-    capped_volatility = min(volatility, 0.3)
+    volatility = (DAT_high - DAT_low) / DAT_avg if DAT_avg else 0
+    skew = (DAT_high - DAT_avg) / (DAT_avg - DAT_low) if (DAT_avg - DAT_low) else 0
+    upper_spread = DAT_high - DAT_avg
 
-    # --- Skew ---
-    raw_skew = (DAT_high - DAT_avg) / (DAT_avg - DAT_low) if (DAT_avg - DAT_low) != 0 else 0
-    skew = max(0, raw_skew)  # ❗️ No permitir skew negativo
-    capped_skew = min(skew, 2)
-
-    # --- Premiums ---
-    premium_factor = 0.0358  # Confirmado empíricamente
-    volatility_premium = round(DAT_avg * capped_volatility * premium_factor, 2)
-    skew_premium = round(DAT_avg * capped_skew * premium_factor, 2)
-    chaos_premium = round(volatility_premium + skew_premium, 2)
-
+    # Risk level y cap
     if volatility > 0.4 or skew > 2.0:
         risk = "High Risk"
         max_chaos_pct = 0.20
@@ -788,7 +784,6 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
         risk = "Low Risk"
         max_chaos_pct = 0.05
 
-    
     if volatility <= 0.1:
         vol_pct = 0.02
     elif volatility <= 0.2:
@@ -800,7 +795,6 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
     else:
         vol_pct = 0.12
 
-    
     if skew <= 0.5:
         skew_pct = 0.00
     elif skew <= 1.0:
@@ -812,12 +806,11 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
     else:
         skew_pct = 0.12
 
-    upper_spread = DAT_high - DAT_avg
     raw_vol_premium = vol_pct * upper_spread
     raw_skew_premium = skew_pct * upper_spread
     raw_chaos_premium = raw_vol_premium + raw_skew_premium
 
-    capped_chaos_premium = min(raw_chaos_premium, max_chaos_pct * DAT_avg)
+    capped_chaos_premium = min(raw_chaos_premium, max_chaos_pct * adjusted_base_rate)
 
     if raw_chaos_premium > 0:
         vol_premium = round(capped_chaos_premium * (raw_vol_premium / raw_chaos_premium), 2)
@@ -825,6 +818,7 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
     else:
         vol_premium = 0
         skew_premium = 0
+
 
     if miles < 100:
         chaos_multiplier = 0.25
@@ -836,14 +830,16 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
     chaos_premium = round((vol_premium + skew_premium) * chaos_multiplier, 2)
 
 
+
     return {
-    "volatility": round(volatility, 3),
-    "skew": round(skew, 3),
-    "volatility_premium": vol_premium,
-    "skew_premium": skew_premium,
-    "chaos_premium": chaos_premium,
-    "risk_level": risk
+        "volatility": round(volatility, 3),
+        "skew": round(skew, 3),
+        "volatility_premium": vol_premium,
+        "skew_premium": skew_premium,
+        "chaos_premium": chaos_premium,
+        "risk_level": risk
     }
+
 
 
 
@@ -857,6 +853,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         st.error("No DAT result returned.")
         return
 
+    raw_avg = dat_result["rate"]
     DAT_fuel_per_trip = dat_result["fuel_per_trip"]
     DAT_miles = dat_result["miles"]
     DAT_average = dat_result["rate"] + round(DAT_fuel_per_trip, 0)
@@ -869,7 +866,6 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         DAT_high = sum(p["highUSD"] for p in forecasts) / len(forecasts)
         DAT_low = sum(p["lowUSD"] for p in forecasts) / len(forecasts)
 
-    chaos_data = calculate_chaos_premiums(DAT_average, DAT_high, DAT_low, DAT_miles)
 
     mci_data = get_MCI_scores(locations_input, equipment_type, url_MCI)
     if not mci_data:
@@ -883,6 +879,8 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         Mark_up = calculate_auto_markup(mci_data, equipment_type)
         st.success(f"Auto markup based on MCI: {round(Mark_up * 100)}%")
 
+    adjusted_base_rate = raw_avg * (1 + Mark_up)
+
     gs_data = get_greenscreens_rate(locations_input, equipment_type)
     if gs_data:
         total_all_in = gs_data["rate_per_mile"]
@@ -895,6 +893,8 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         effective_avg = DAT_average
         blend_label = "100% DAT"
         st.caption("Base Rate used: 100% DAT (no GS data)")
+        
+    chaos_data = calculate_chaos_premiums(raw_avg, DAT_high, DAT_low, DAT_miles, adjusted_base_rate)
 
     route_data = get_route_info(locations_input, DAT_miles, DAT_average, effective_avg, blend_label,Mark_up,chaos_data["chaos_premium"])
     if not route_data:
@@ -920,6 +920,7 @@ if st.button("Calculate"):
             user_markup if markup_mode == "Yes" else None
         )
    
+        
         
    
         
