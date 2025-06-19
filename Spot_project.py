@@ -3,7 +3,7 @@
 # -----------------------------
 import requests  # For making API requests (DAT and Google Maps)
 import streamlit as st  # For Streamlit app interface
-from datetime import datetime
+from datetime import datetime, timezone
 
 # -----------------------------
 # CONNECTIONS / CONFIG IMPORTS
