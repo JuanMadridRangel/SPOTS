@@ -31,6 +31,7 @@ ACCOUNT_USERNAME = st.secrets["ACCOUNT_USERNAME"]
 GS_CLIENT_SECRET = st.secrets["GS_CLIENT_SECRET"] # client_secret
 
 
+
 # -----------------------------
 # FUNCTIONS: DAT AUTHENTICATION
 # -----------------------------
@@ -751,7 +752,7 @@ def get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence):
 # -----------------------------
 # CALCULATE CHAOS PREMIUMS 
 # -----------------------------
-def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low):
+def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles):
     if not all([DAT_avg, DAT_high, DAT_low]):
         return {
             "volatility": 0,
@@ -777,22 +778,73 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low):
     skew_premium = round(DAT_avg * capped_skew * premium_factor, 2)
     chaos_premium = round(volatility_premium + skew_premium, 2)
 
-    # --- Riesgo interpretativo ---
-    if capped_volatility < 0.1 and capped_skew < 0.8:
-        risk = "Low Risk"
-    elif capped_volatility < 0.2 and capped_skew < 1.2:
-        risk = "Moderate Risk"
-    else:
+    if volatility > 0.4 or skew > 2.0:
         risk = "High Risk"
+        max_chaos_pct = 0.20
+    elif volatility > 0.2 or skew > 1.0:
+        risk = "Moderate Risk"
+        max_chaos_pct = 0.10
+    else:
+        risk = "Low Risk"
+        max_chaos_pct = 0.05
+
+    
+    if volatility <= 0.1:
+        vol_pct = 0.02
+    elif volatility <= 0.2:
+        vol_pct = 0.04
+    elif volatility <= 0.3:
+        vol_pct = 0.06
+    elif volatility <= 0.4:
+        vol_pct = 0.08
+    else:
+        vol_pct = 0.12
+
+    
+    if skew <= 0.5:
+        skew_pct = 0.00
+    elif skew <= 1.0:
+        skew_pct = 0.04
+    elif skew <= 1.5:
+        skew_pct = 0.06
+    elif skew <= 2.0:
+        skew_pct = 0.08
+    else:
+        skew_pct = 0.12
+
+    upper_spread = DAT_high - DAT_avg
+    raw_vol_premium = vol_pct * upper_spread
+    raw_skew_premium = skew_pct * upper_spread
+    raw_chaos_premium = raw_vol_premium + raw_skew_premium
+
+    capped_chaos_premium = min(raw_chaos_premium, max_chaos_pct * DAT_avg)
+
+    if raw_chaos_premium > 0:
+        vol_premium = round(capped_chaos_premium * (raw_vol_premium / raw_chaos_premium), 2)
+        skew_premium = round(capped_chaos_premium * (raw_skew_premium / raw_chaos_premium), 2)
+    else:
+        vol_premium = 0
+        skew_premium = 0
+
+    if miles < 100:
+        chaos_multiplier = 0.25
+    elif miles < 250:
+        chaos_multiplier = 0.5
+    else:
+        chaos_multiplier = 1.0
+
+    chaos_premium = round((vol_premium + skew_premium) * chaos_multiplier, 2)
+
 
     return {
-        "volatility": round(volatility, 3),
-        "skew": round(skew, 3),
-        "volatility_premium": volatility_premium,
-        "skew_premium": skew_premium,
-        "chaos_premium": chaos_premium,
-        "risk_level": risk
+    "volatility": round(volatility, 3),
+    "skew": round(skew, 3),
+    "volatility_premium": vol_premium,
+    "skew_premium": skew_premium,
+    "chaos_premium": chaos_premium,
+    "risk_level": risk
     }
+
 
 
 # -----------------------------
@@ -817,7 +869,8 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         DAT_high = sum(p["highUSD"] for p in forecasts) / len(forecasts)
         DAT_low = sum(p["lowUSD"] for p in forecasts) / len(forecasts)
 
-    chaos_data = calculate_chaos_premiums(DAT_average, DAT_high, DAT_low)
+    chaos_data = calculate_chaos_premiums(DAT_average, DAT_high, DAT_low, DAT_miles)
+
     mci_data = get_MCI_scores(locations_input, equipment_type, url_MCI)
     if not mci_data:
         st.error("Failed to retrieve MCI data.")
@@ -866,6 +919,8 @@ if st.button("Calculate"):
             markup_mode,
             user_markup if markup_mode == "Yes" else None
         )
+   
+        
    
         
         
