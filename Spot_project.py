@@ -30,12 +30,24 @@ ACCOUNT_USERNAME = st.secrets["ACCOUNT_USERNAME"]
 # -----------------------------
 GS_CLIENT_SECRET = st.secrets["GS_CLIENT_SECRET"] # client_secret
 
+
 # -----------------------------
 # FUNCTIONS: DAT AUTHENTICATION
 # -----------------------------
-def get_dat_access_token():
+def get_dat_access_token(force_refresh=False):
+    
+    if (
+        not force_refresh
+        and "DAT_BEARER_TOKEN" in st.session_state
+        and "DAT_TOKEN_EXPIRY" in st.session_state
+    ):
+        now = datetime.now(timezone.utc)
+        expiry = st.session_state["DAT_TOKEN_EXPIRY"]
+        if now < expiry:
+            return st.session_state["DAT_BEARER_TOKEN"]  
+
+    
     try:
-        # Step 1: Login with organization credentials
         org_payload = {
             "username": ORG_USERNAME,
             "password": ORG_PASSWORD
@@ -44,7 +56,6 @@ def get_dat_access_token():
         org_response.raise_for_status()
         org_token = org_response.json()["accessToken"]
 
-        # Step 2: Login with user account
         user_payload = {
             "username": ACCOUNT_USERNAME
         }
@@ -56,10 +67,19 @@ def get_dat_access_token():
         data = user_response.json()
 
         access_token = data["accessToken"]
-        expiration = data.get("expiresWhen", "Desconocido")
+        expires_raw = data.get("expiresWhen")
 
-        # Show confirmation in sidebar
-        st.sidebar.success(f"DAT token generated\nExpires: {expiration}")
+        
+        if expires_raw:
+            expires_dt = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+        else:
+            expires_dt = datetime.now(timezone.utc)  # fallback inmediato
+
+        
+        st.session_state["DAT_BEARER_TOKEN"] = access_token
+        st.session_state["DAT_TOKEN_EXPIRY"] = expires_dt
+
+        #st.sidebar.success(f"DAT token refreshed\nExpires: {expires_dt.strftime('%Y-%m-%d %H:%M')}")
 
         return access_token
 
@@ -70,15 +90,11 @@ def get_dat_access_token():
 # -----------------------------
 # STREAMLIT INITIALIZATION
 # -----------------------------
-if "DAT_BEARER_TOKEN" not in st.session_state:
-    st.session_state["DAT_BEARER_TOKEN"] = get_dat_access_token()
+access_token = get_dat_access_token()
+st.session_state["DAT_BEARER_TOKEN"] = access_token
 
 st.title("Multis Spot or Contract: Pricing Department")
 
-with st.sidebar:
-    st.markdown("### Token Manager")
-    if st.button("Refresh DAT Token"):
-        st.session_state["DAT_BEARER_TOKEN"] = get_dat_access_token()
 
 # -----------------------------
 # SELECT CONTRACT OR SPOT
@@ -148,17 +164,24 @@ else:
     st.info("Markup will be calculated automatically based on MCI values once you press Calculate.")
 
 
-def calculate_auto_markup(locations, equipment_type):
-    
-    mci_data = get_MCI_scores(locations, equipment_type, url_MCI)
+# -----------------------------
+# RULES FOR MCI
+# -----------------------------
 
+def get_mci_adjustment(mci_score, rules):
+    for condition, adjustment in rules:
+        if condition(mci_score):
+            return adjustment
+    return 0
+
+
+def calculate_auto_markup(mci_data, equipment_type):
     if not mci_data:
-        return 0.07 if equipment_type == "VAN" else 0.12  # fallback por equipo
+        return 0.07 if equipment_type == "VAN" else 0.12
 
     origin_mci = mci_data["origin_mci"]
     destination_mci = mci_data["destination_mci"]
 
-   
     if equipment_type == "VAN":
         base_markup = 0.08
     elif equipment_type in ["REEFER", "FLATBED"]:
@@ -166,27 +189,23 @@ def calculate_auto_markup(locations, equipment_type):
     else:
         base_markup = 0.1
 
-    
-    origin_adj = 0
-    if origin_mci >= 90:
-        origin_adj = 0.02
-    elif origin_mci >= 75:
-        origin_adj = 0.015
-    elif origin_mci >= 50:
-        origin_adj = 0.01
-    elif origin_mci <= -75:
-        origin_adj = 0.01
+    origin_rules = [
+        (lambda x: x >= 90, 0.02),
+        (lambda x: x >= 75, 0.015),
+        (lambda x: x >= 50, 0.01),
+        (lambda x: x <= -75, 0.01)
+    ]
 
-    dest_adj = 0
-    if destination_mci >= 75:
-        dest_adj = -0.02
-    elif destination_mci >= 50:
-        dest_adj = -0.01
-    elif destination_mci <= -75:
-        dest_adj = 0.015
+    destination_rules = [
+        (lambda x: x >= 75, -0.02),
+        (lambda x: x >= 50, -0.01),
+        (lambda x: x <= -75, 0.015)
+    ]
+
+    origin_adj = get_mci_adjustment(origin_mci, origin_rules)
+    dest_adj = get_mci_adjustment(destination_mci, destination_rules)
 
     return base_markup + origin_adj + dest_adj
-
 
 
 # -----------------------------
@@ -323,7 +342,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode):
                 if len(monthly_forecasts) == 12:
                     break
 
-            # Print results
             for point in monthly_forecasts:
                 print(f"{point['date']} - Avg: ${point['forecastUSD']} | Low: ${point['lowUSD']} | High: ${point['highUSD']}")
 
@@ -362,7 +380,8 @@ def get_DAT_data(locations, equipment_type, pricing_mode):
             return {
                 "rate": average_rate,
                 "miles": mileage,
-                "fuel_per_trip": fuel_per_trip
+                "fuel_per_trip": fuel_per_trip,
+                "monthly_forecasts": monthly_forecasts
             }
         
 
@@ -371,7 +390,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode):
             return None
 
 # -----------------------------
-# FUNCTION: GOOGLE MAPS ROUTE & PRICING
+# FUNCTION: MCI NUMBERS
 
 # -----------------------------
 
@@ -537,7 +556,8 @@ def get_greenscreens_rate(locations, equipment_type):
 # -----------------------------
 # FUNCTION: GOOGLE MAPS ROUTE & PRICING
 # -----------------------------
-def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, blend_label=None):
+def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, blend_label=None, Mark_up=0.1, chaos_premium=0):
+
     if len(locations) < 2:
         return {"error": "At least two valid locations are required"}
 
@@ -587,17 +607,22 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
 
         
         if miles_diff >= 0:
-            total_cost = round_to_nearest_5(mileage_charge + total_additions + increase_per_stop + layover)
+            total_cost = round_to_nearest_5(
+                mileage_charge + total_additions + increase_per_stop + layover + chaos_premium
+            )
         else:
-            total_cost = round_to_nearest_5(base_rate_for_rpm + total_additions + increase_per_stop + layover)
+            total_cost = round_to_nearest_5(
+                base_rate_for_rpm + total_additions + increase_per_stop + layover + chaos_premium
+            )
+
 
 
         Final_Rate = round_to_nearest_5(total_cost * (1 + Mark_up))
 
         Manual_adj_buy = total_cost - DAT_average
 
-        adj_layover = layover  # Ya está calculado con base en días extras
-        adj_extra_stops = increase_per_stop + total_additions  # Ya está calculado
+        adj_layover = layover  
+        adj_extra_stops = increase_per_stop + total_additions  
         adj_extra_miles_plus_margin = round((Manual_adj_buy) - (adj_layover + adj_extra_stops), 2)
    
         return {
@@ -619,7 +644,8 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
 # -----------------------------
 # RESULT
 # -----------------------------  
-def SHOW_RESULT(route_data, mci_data, gs_data):
+def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
+
     total_distance_miles = route_data["google_miles"]
     DAT_miles = route_data["dat_miles"]
     DAT_average = route_data["dat_avg_rate"]
@@ -630,12 +656,15 @@ def SHOW_RESULT(route_data, mci_data, gs_data):
     adj_layover = route_data["layover"]
     adj_extra_stops = route_data["extra_stops"]
     adj_extra_miles_plus_margin = route_data["extra_miles"]
+
     
     mci_origin = mci_data["origin_mci"]
     mci_destination = mci_data["destination_mci"]
 
     total_all_in = gs_data["rate_per_mile"]
     confidence = gs_data["confidence"]
+
+
 
     with st.container():
             st.markdown(
@@ -660,6 +689,24 @@ def SHOW_RESULT(route_data, mci_data, gs_data):
                 """,
             unsafe_allow_html=True
             )
+
+    with st.container():
+        st.markdown(
+            f"""
+            <div style="margin-top:10px; padding:15px; background-color:#fff3cd; border-left:6px solid #ffecb5; border-radius:8px;">
+            <b style="font-size:15px;">Chaos Metrics</b><br><br>
+            <b>Volatility:</b> {chaos_data['volatility']}<br>
+            <b>Skew:</b> {chaos_data['skew']}<br>
+            <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
+            <b>Skew Premium:</b> ${chaos_data['skew_premium']}<br>
+            <b>Chaos Premium:</b> <b>${chaos_data['chaos_premium']}</b><br>
+            <b>Risk Level:</b> <span style="color: {'red' if chaos_data['risk_level']=="High Risk" else 'orange' if chaos_data['risk_level']=="Moderate Risk" else 'green'};">
+            {chaos_data['risk_level']}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
 
 # -----------------------------
 # LOCATION INPUT & PARSING
@@ -700,6 +747,111 @@ def get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence):
     return round(base_rate), blend_label
 
 
+
+# -----------------------------
+# CALCULATE CHAOS PREMIUMS 
+# -----------------------------
+def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low):
+    if not all([DAT_avg, DAT_high, DAT_low]):
+        return {
+            "volatility": 0,
+            "skew": 0,
+            "volatility_premium": 0,
+            "skew_premium": 0,
+            "chaos_premium": 0,
+            "risk_level": "Unknown"
+        }
+
+    # --- Volatility ---
+    volatility = (DAT_high - DAT_low) / DAT_avg if DAT_avg != 0 else 0
+    capped_volatility = min(volatility, 0.3)
+
+    # --- Skew ---
+    raw_skew = (DAT_high - DAT_avg) / (DAT_avg - DAT_low) if (DAT_avg - DAT_low) != 0 else 0
+    skew = max(0, raw_skew)  # ❗️ No permitir skew negativo
+    capped_skew = min(skew, 2)
+
+    # --- Premiums ---
+    premium_factor = 0.0358  # Confirmado empíricamente
+    volatility_premium = round(DAT_avg * capped_volatility * premium_factor, 2)
+    skew_premium = round(DAT_avg * capped_skew * premium_factor, 2)
+    chaos_premium = round(volatility_premium + skew_premium, 2)
+
+    # --- Riesgo interpretativo ---
+    if capped_volatility < 0.1 and capped_skew < 0.8:
+        risk = "Low Risk"
+    elif capped_volatility < 0.2 and capped_skew < 1.2:
+        risk = "Moderate Risk"
+    else:
+        risk = "High Risk"
+
+    return {
+        "volatility": round(volatility, 3),
+        "skew": round(skew, 3),
+        "volatility_premium": volatility_premium,
+        "skew_premium": skew_premium,
+        "chaos_premium": chaos_premium,
+        "risk_level": risk
+    }
+
+
+# -----------------------------
+# RUN PRICING FLOW
+# -----------------------------
+
+def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode, user_markup=None):
+    dat_result = get_DAT_data(locations_input, equipment_type, pricing_mode)
+    if not dat_result:
+        st.error("No DAT result returned.")
+        return
+
+    DAT_fuel_per_trip = dat_result["fuel_per_trip"]
+    DAT_miles = dat_result["miles"]
+    DAT_average = dat_result["rate"] + round(DAT_fuel_per_trip, 0)
+
+    if pricing_mode == "Spot":
+        DAT_high = dat_result["high"]
+        DAT_low = dat_result["low"]
+    else:
+        forecasts = dat_result["monthly_forecasts"]  # ← si estás seguro que existe
+        DAT_high = sum(p["highUSD"] for p in forecasts) / len(forecasts)
+        DAT_low = sum(p["lowUSD"] for p in forecasts) / len(forecasts)
+
+    chaos_data = calculate_chaos_premiums(DAT_average, DAT_high, DAT_low)
+    mci_data = get_MCI_scores(locations_input, equipment_type, url_MCI)
+    if not mci_data:
+        st.error("Failed to retrieve MCI data.")
+        return
+
+    if markup_mode == "Yes" and user_markup is not None:
+        Mark_up = user_markup
+        st.success(f"Manual markup selected: {round(Mark_up * 100)}%")
+    else:
+        Mark_up = calculate_auto_markup(mci_data, equipment_type)
+        st.success(f"Auto markup based on MCI: {round(Mark_up * 100)}%")
+
+    gs_data = get_greenscreens_rate(locations_input, equipment_type)
+    if gs_data:
+        total_all_in = gs_data["rate_per_mile"]
+        confidence = gs_data["confidence"]
+        effective_avg, blend_label = get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence)
+        st.caption(f"Base Rate used for cost calculation: {blend_label}")
+    else:
+        total_all_in = 0
+        confidence = 0
+        effective_avg = DAT_average
+        blend_label = "100% DAT"
+        st.caption("Base Rate used: 100% DAT (no GS data)")
+
+    route_data = get_route_info(locations_input, DAT_miles, DAT_average, effective_avg, blend_label,Mark_up,chaos_data["chaos_premium"])
+    if not route_data:
+        st.error("Error processing route information.")
+        return
+
+    SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data)
+
+
+
 # -----------------------------
 # BUTTON ACTION: CALCULATE
 # -----------------------------
@@ -707,56 +859,15 @@ if st.button("Calculate"):
     if len(locations_input) < 2:
         st.error("Please enter at least two locations.")
     else:
-        dat_result = get_DAT_data(locations_input, equipment_type, pricing_mode)
+        run_pricing_flow(
+            locations_input,
+            equipment_type,
+            pricing_mode,
+            markup_mode,
+            user_markup if markup_mode == "Yes" else None
+        )
+   
         
-        if dat_result:
-            DAT_fuel_per_trip = dat_result["fuel_per_trip"]
-            DAT_miles = dat_result["miles"]
-            DAT_average = dat_result["rate"] + round(DAT_fuel_per_trip, 0)
-
-            if pricing_mode == "Spot":
-                DAT_high = dat_result["high"]
-                DAT_low = dat_result["low"]
-            else: 
-                
-                forecasts = dat_result.get("monthly_forecasts", [])
-                if forecasts:
-                    DAT_high = max(point["highUSD"] for point in forecasts)
-                    DAT_low = min(point["lowUSD"] for point in forecasts)
-
-            if markup_mode == "Yes":
-                Mark_up = user_markup
-                st.success(f"Manual markup selected: {round(Mark_up * 100)}%")
-            else:
-                Mark_up = calculate_auto_markup(locations_input, equipment_type)
-                st.success(f"Auto markup based on MCI: {round(Mark_up * 100)}%")
-
-            mci_data = get_MCI_scores(locations_input, equipment_type, url_MCI)
-            gs_data = get_greenscreens_rate(locations_input, equipment_type)
-
-            if gs_data:
-                total_all_in = gs_data["rate_per_mile"]
-                confidence = gs_data["confidence"]
-
-                effective_avg, blend_label = get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence)
-                st.caption(f"Base Rate used for cost calculation: {blend_label}")
-
-            else:
-                total_all_in = 0
-                confidence = 0
-                effective_avg = DAT_average
-                st.caption("Base Rate used: 100% DAT (no GS data)")
-
-            route_data = get_route_info(
-                locations_input,
-                DAT_miles,
-                DAT_average,
-                effective_avg,
-                blend_label
-            )
-
-            if mci_data and gs_data and route_data:
-                SHOW_RESULT(route_data, mci_data, gs_data)
-
+        
 
 
