@@ -606,19 +606,19 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
         
         miles_diff = total_distance_miles - DAT_miles
 
-        
+           
         if miles_diff >= 0:
             total_cost = round_to_nearest_5(
-                mileage_charge + total_additions + increase_per_stop + layover + chaos_premium
+                mileage_charge + total_additions + increase_per_stop + layover
             )
         else:
             total_cost = round_to_nearest_5(
-                base_rate_for_rpm + total_additions + increase_per_stop + layover + chaos_premium
+                base_rate_for_rpm + total_additions + increase_per_stop + layover
             )
 
 
 
-        Final_Rate = round_to_nearest_5(total_cost * (1 + Mark_up))
+        Final_Rate = round_to_nearest_5(total_cost * (1 + Mark_up) + chaos_premium)
 
         Manual_adj_buy = total_cost - DAT_average
 
