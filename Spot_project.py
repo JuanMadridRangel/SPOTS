@@ -691,7 +691,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
             unsafe_allow_html=True
             )
 
-    total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 2)
+    total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 0)
     with st.container():
         st.markdown(
             f"""
