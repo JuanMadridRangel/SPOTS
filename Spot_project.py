@@ -881,11 +881,27 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
 
     adjusted_base_rate = raw_avg * (1 + Mark_up)
 
+    
+    chaos_data = calculate_chaos_premiums(raw_avg, DAT_high, DAT_low, DAT_miles, adjusted_base_rate)
+
+    
     gs_data = get_greenscreens_rate(locations_input, equipment_type)
     if gs_data:
         total_all_in = gs_data["rate_per_mile"]
         confidence = gs_data["confidence"]
-        effective_avg, blend_label = get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence)
+        
+        
+        use_gs = True
+        if pricing_mode == "Contract" and chaos_data["volatility"] >= 0.1:
+            use_gs = False
+
+
+        if use_gs:
+            effective_avg, blend_label = get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence)
+        else:
+            effective_avg = DAT_average
+            blend_label = "100% DAT"
+
         st.caption(f"Base Rate used for cost calculation: {blend_label}")
     else:
         total_all_in = 0
@@ -893,8 +909,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         effective_avg = DAT_average
         blend_label = "100% DAT"
         st.caption("Base Rate used: 100% DAT (no GS data)")
-        
-    chaos_data = calculate_chaos_premiums(raw_avg, DAT_high, DAT_low, DAT_miles, adjusted_base_rate)
+
 
     route_data = get_route_info(locations_input, DAT_miles, DAT_average, effective_avg, blend_label,Mark_up,chaos_data["chaos_premium"])
     if not route_data:
