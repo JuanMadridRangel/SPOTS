@@ -105,6 +105,19 @@ with st.sidebar:
     st.markdown("### Pricing Mode")
     pricing_mode = st.radio("Select pricing mode:", ["Spot", "Contract"])
 
+    st.markdown("---")
+    st.sidebar.markdown("### Quote History")
+    if "quote_history" in st.session_state:
+        for quote in st.session_state.quote_history:
+            lane_label = f"{quote['Lane']}"
+            with st.sidebar.expander(lane_label):
+                st.write(f"**Mode:** {quote['mode']}")
+                st.write(f"**Equipment:** {quote['equipment']}")
+                st.write(f"**Rate:** ${quote['rate']}")
+    else:
+        st.caption("No recent quotes yet.")
+
+
 
 # -----------------------------
 # USER INPUT: CUSTOMER & EQUIPMENT
@@ -125,17 +138,9 @@ elif opcion_stops == "Other":
     variable_stops = 100
 
 # -----------------------------
-# USER INPUT: ESCALATION TYPE
+# ESCALATION TYPE
 # -----------------------------
-with st.sidebar:
-    st.markdown("### DAT Rate Options")
-    escalation_type = st.selectbox(
-        "Select Escalation Type:",
-        options=["Best_fit", "Specific (7 Days, Zip code)"],
-        help="Use 'Best_fit' when ZIPs are missing or for broader data. Use 'Specific' for more accurate Zip codes results."
-    )
-
-
+escalation_type = "Best_fit"  # Fixed globally
 
 # -----------------------------
 # FUNCTION: Markup
@@ -227,22 +232,11 @@ def get_DAT_data(locations, equipment_type, pricing_mode):
 
         print("Origin:", origin)
         print("Destination:", destination)
-
-        # Check if ZIP codes exist
-        has_zip = "postalCode" in origin and "postalCode" in destination
-
         
-        # Define escalation block
-        if escalation_type == "Specific (7 Days, Zip code)" and has_zip:
-            target_escalation = {
-                "escalationType": "SPECIFIC_AREA_TYPE_AND_SPECIFIC_TIME_FRAME",
-                "specificTimeFrame": "7_DAYS",
-                "specificAreaType": "3_DIGIT_ZIP"
-            }
-        else:
-            target_escalation = {
-                "escalationType": "BEST_FIT"
-            }
+        target_escalation = {
+            "escalationType": "BEST_FIT"
+        }
+
 
         body = [
             {
@@ -265,10 +259,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode):
             rate_response_full = data["rateResponses"][0]["response"]
 
             if "rate" not in rate_response_full:
-                if escalation_type == "SPECIFIC (30 DAYS, 3-DIGIT ZIP)" and has_zip:
-                    st.warning("No rates available for this lane using ZIP codes and a 30-day time frame.")
-                else:
-                    st.warning("No DAT rates available for this lane at the moment.")
+                st.warning("No DAT rates available for this lane at the moment.")
                 return None
 
             rate_response = rate_response_full["rate"]
@@ -296,9 +287,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode):
 
         print("Origin:", origin)
         print("Destination:", destination)
-
-        # Check if ZIP codes exist
-        has_zip = "postalCode" in origin and "postalCode" in destination
 
         try:
 
@@ -910,11 +898,37 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         blend_label = "100% DAT"
         st.caption("Base Rate used: 100% DAT (no GS data)")
 
+    if "quote_history" not in st.session_state:
+        st.session_state.quote_history = []
+
+    from_location = parse_location_string_spots(locations_input[0])
+    to_location = parse_location_string_spots(locations_input[-1])
+
+    origin_city = from_location.get("city", "Unknown")
+    origin_state = from_location.get("stateOrProvince", "Unknown")
+    destination_city = to_location.get("city", "Unknown")
+    destination_state = to_location.get("stateOrProvince", "Unknown") 
 
     route_data = get_route_info(locations_input, DAT_miles, DAT_average, effective_avg, blend_label,Mark_up,chaos_data["chaos_premium"])
     if not route_data:
         st.error("Error processing route information.")
         return
+
+    final_rate =  route_data["final_rate"]
+    lane_display = f"{origin_city}, {origin_state} → {destination_city}, {destination_state}"  
+
+    
+
+    new_quote = {
+        "equipment": equipment_type,
+        "mode": pricing_mode,
+        "Lane": lane_display,
+        "rate": final_rate
+    }
+
+
+    st.session_state.quote_history.insert(0, new_quote)
+    st.session_state.quote_history = st.session_state.quote_history[:10]  # máximo 10 elementos
 
     SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data)
 
@@ -935,6 +949,7 @@ if st.button("Calculate"):
             user_markup if markup_mode == "Yes" else None
         )
    
+        
         
         
    
