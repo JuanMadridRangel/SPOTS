@@ -697,7 +697,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
             f"""
             <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
                         border-left:6px solid #ffecb5; border-radius:8px;">
-                <b style="font-size:15px;">Chaos Metrics & Markup Impact</b><br><br>
+                <b style="font-size:15px;">Chaos Metrics</b><br><br>
                 <b>Volatility:</b> {chaos_data['volatility']}<br>
                 <b>Skew:</b> {chaos_data['skew']}<br>
                 <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
