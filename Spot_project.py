@@ -32,6 +32,7 @@ GS_CLIENT_SECRET = st.secrets["GS_CLIENT_SECRET"] # client_secret
 
 
 
+
 # -----------------------------
 # FUNCTIONS: DAT AUTHENTICATION
 # -----------------------------
@@ -105,6 +106,18 @@ with st.sidebar:
     st.markdown("### Pricing Mode")
     pricing_mode = st.radio("Select pricing mode:", ["Spot", "Contract"])
 
+    if pricing_mode == "Contract":
+        selected_months = st.sidebar.number_input(
+            "Forecast months",
+            min_value=3,
+            max_value=12,
+            value=12,
+            step=1
+        )
+    else:
+        selected_months = 12
+ 
+
     st.markdown("---")
     st.sidebar.markdown("### Quote History")
     if "quote_history" in st.session_state:
@@ -116,6 +129,7 @@ with st.sidebar:
                 st.write(f"**Rate:** ${quote['rate']}")
     else:
         st.caption("No recent quotes yet.")
+
 
 
 
@@ -217,7 +231,7 @@ def calculate_auto_markup(mci_data, equipment_type):
 # -----------------------------
 # FUNCTION: GET DAT RATE DATA
 # -----------------------------
-def get_DAT_data(locations, equipment_type, pricing_mode):
+def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 
     headers = {
         "Authorization": f"Bearer {st.session_state['DAT_BEARER_TOKEN']}",
@@ -328,8 +342,11 @@ def get_DAT_data(locations, equipment_type, pricing_mode):
                         "highUSD": int(high_usd)
                     })
 
-                if len(monthly_forecasts) == 12:
+                if len(monthly_forecasts) >= selected_months:
                     break
+
+
+
 
             for point in monthly_forecasts:
                 print(f"{point['date']} - Avg: ${point['forecastUSD']} | Low: ${point['lowUSD']} | High: ${point['highUSD']}")
@@ -624,7 +641,8 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
         "extra_stops": adj_extra_stops,
         "extra_miles": adj_extra_miles_plus_margin,
         "blend_label": blend_label,
-        "effective_avg_rate": base_rate_for_rpm
+        "effective_avg_rate": base_rate_for_rpm,
+        "Stops": stops
         }
     
     except Exception as e:
@@ -645,6 +663,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
     adj_layover = route_data["layover"]
     adj_extra_stops = route_data["extra_stops"]
     adj_extra_miles_plus_margin = route_data["extra_miles"]
+    Stops= route_data["Stops"]
 
     
     mci_origin = mci_data["origin_mci"]
@@ -686,6 +705,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
             <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
                         border-left:6px solid #ffecb5; border-radius:8px;">
                 <b style="font-size:15px;">Chaos Metrics</b><br><br>
+                <b>Stops:</b> {Stops}<br>
                 <b>Volatility:</b> {chaos_data['volatility']}<br>
                 <b>Skew:</b> {chaos_data['skew']}<br>
                 <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
@@ -836,7 +856,7 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles, adjusted_base_ra
 # -----------------------------
 
 def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode, user_markup=None):
-    dat_result = get_DAT_data(locations_input, equipment_type, pricing_mode)
+    dat_result = get_DAT_data(locations_input, equipment_type, pricing_mode, selected_months)
     if not dat_result:
         st.error("No DAT result returned.")
         return
@@ -948,7 +968,6 @@ if st.button("Calculate"):
             markup_mode,
             user_markup if markup_mode == "Yes" else None
         )
-   
         
         
         
