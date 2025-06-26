@@ -629,7 +629,7 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
 
         adj_layover = layover  
         adj_extra_stops = increase_per_stop + total_additions  
-        adj_extra_miles_plus_margin = round((Manual_adj_buy) - (adj_layover + adj_extra_stops), 2)
+        adj_extra_miles_plus_margin = round((Manual_adj_buy) - (adj_layover + adj_extra_stops), 2) if miles_diff >= 0 else 0
    
         return {
         "google_miles": total_distance_miles,
