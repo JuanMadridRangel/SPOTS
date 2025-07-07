@@ -89,6 +89,7 @@ def get_dat_access_token(force_refresh=False):
         st.sidebar.error(f"Error authenticating with DAT: {e}")
         return None
 
+
 # -----------------------------
 # STREAMLIT INITIALIZATION
 # -----------------------------
@@ -107,15 +108,22 @@ with st.sidebar:
     pricing_mode = st.radio("Select pricing mode:", ["Spot", "Contract"])
 
     if pricing_mode == "Contract":
-        selected_months = st.sidebar.number_input(
+        months_to_forecast = st.sidebar.number_input(
             "Forecast months",
-            min_value=3,
+            min_value=1,
             max_value=12,
             value=12,
             step=1
         )
+
+        if months_to_forecast < 12:
+            selected_months = months_to_forecast + 1
+
+        else:
+            selected_months=12
+
     else:
-        selected_months = 12
+        selected_months = 1
  
 
     st.markdown("---")
@@ -317,8 +325,9 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             data_forecast = response_forecast.json()
 
             per_trip_data = data_forecast.get("forecasts", {}).get("perTrip", [])
-            seen_months = set()
-            monthly_forecasts = []
+            monthly_values = defaultdict(list)
+
+            monthly_values = defaultdict(lambda: {"avg": [], "low": [], "high": []})
 
             for point in per_trip_data:
                 date_str = point.get("forecastDate")
@@ -333,34 +342,46 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 year_month = (date.year, date.month)
 
-                if year_month not in seen_months:
-                    seen_months.add(year_month)
-                    monthly_forecasts.append({
-                        "date": date_str,
-                        "forecastUSD": int(avg_usd),
-                        "lowUSD": int(low_usd),
-                        "highUSD": int(high_usd)
-                    })
+                monthly_values[year_month]["avg"].append(avg_usd)
+                monthly_values[year_month]["low"].append(low_usd)
+                monthly_values[year_month]["high"].append(high_usd)
 
-                if len(monthly_forecasts) >= selected_months:
-                    break
+           
+            sorted_months = sorted(monthly_values.keys())
+            selected_month_keys = sorted_months[:selected_months]
 
+            monthly_forecasts = []
+            monthly_medians = []
 
+            for ym in selected_month_keys:
+                year, month = ym
+                values = monthly_values[ym]
+                
+                med_avg  = statistics.median(values["avg"])
+                med_low  = statistics.median(values["low"])
+                med_high = statistics.median(values["high"])
 
+                monthly_medians.append(med_avg)
+
+                monthly_forecasts.append({
+                    "date": f"{year}-{month:02d}-01T00:00:00Z",
+                    "forecastUSD": int(med_avg),
+                    "lowUSD": int(med_low),
+                    "highUSD": int(med_high)
+                })
+
+            if not monthly_medians:
+                st.warning("No forecast data available for this lane.")
+                return None
+
+            average_rate = sum(monthly_medians) / len(monthly_medians)
+
+            mileage = data_forecast.get("mileage", 0)
 
             for point in monthly_forecasts:
                 print(f"{point['date']} - Avg: ${point['forecastUSD']} | Low: ${point['lowUSD']} | High: ${point['highUSD']}")
 
-            forecast_values = [p["forecastUSD"] for p in monthly_forecasts]
 
-            if not forecast_values:
-                st.warning("No forecast data available for this lane.")
-                return None
-
-            average_rate = sum(forecast_values) / len(forecast_values)
-            mileage = data_forecast.get("mileage", 0)
-
-           
             # --- Spot request for fuel ---
             fuel_body = [
                 {
@@ -625,11 +646,14 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
 
         Final_Rate = round_to_nearest_5(total_cost * (1 + Mark_up) + chaos_premium)
 
-        Manual_adj_buy = total_cost - DAT_average
+        Manual_adj_buy = total_cost - base_rate_for_rpm
+        correction_factor = effective_avg_rate - DAT_average if effective_avg_rate is not None else 0
 
         adj_layover = layover  
-        adj_extra_stops = increase_per_stop + total_additions  
+        adj_extra_stops = increase_per_stop + total_additions
         adj_extra_miles_plus_margin = round((Manual_adj_buy) - (adj_layover + adj_extra_stops), 2) if miles_diff >= 0 else 0
+
+    
    
         return {
         "google_miles": total_distance_miles,
@@ -642,7 +666,8 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
         "extra_miles": adj_extra_miles_plus_margin,
         "blend_label": blend_label,
         "effective_avg_rate": base_rate_for_rpm,
-        "Stops": stops
+        "Stops": stops,
+        "Correction_factor": correction_factor
         }
     
     except Exception as e:
@@ -659,12 +684,12 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
     effective_avg = route_data["effective_avg_rate"]
     total_cost = route_data["total_cost"]
     Final_Rate = route_data["final_rate"]
-    markup = int(total_cost * Mark_up)
+    markup = int(Final_Rate - chaos_data['chaos_premium'] - total_cost)
     adj_layover = route_data["layover"]
     adj_extra_stops = route_data["extra_stops"]
     adj_extra_miles_plus_margin = route_data["extra_miles"]
     Stops= route_data["Stops"]
-
+    correction_factor= route_data["Correction_factor"]
     
     mci_origin = mci_data["origin_mci"]
     mci_destination = mci_data["destination_mci"]
@@ -679,24 +704,29 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
                 f"""
                 <div style="background-color:#f8f9fa;padding:15px 20px;border-radius:8px;
                             border:1px solid #ccc;margin-top:15px;font-family:sans-serif;
-                            font-size:14px;line-height:1.6;">
-                    <b style="font-size:16px;color:#333;">📈 RESULT</b><br><br>
-                    <b>Google Miles:</b> {total_distance_miles} &nbsp;&nbsp;&nbsp;
-                    <b>DAT Miles:</b> {DAT_miles} &nbsp;&nbsp;&nbsp;
-                    <b>DAT Avg Rate:</b> ${int(DAT_average)} &nbsp;&nbsp;&nbsp;
+                            font-size:14px;line-height:1.7;">
+                    <b style="color:#555;">DAT/GS</b><br>
+                    <b>Google Miles:</b> {total_distance_miles} &nbsp;&nbsp;
+                    <b>DAT Miles:</b> {DAT_miles}<br>
+                    <b>DAT Avg Rate:</b> ${int(DAT_average)} &nbsp;&nbsp;
                     <b>Base Rate:</b> ${int(effective_avg)}<br>
-                    <b>GS:</b> ${total_all_in} | {confidence}% &nbsp;&nbsp;&nbsp;
-                    <b>Buy Rate:</b> ${total_cost} &nbsp;&nbsp;&nbsp;
-                    <b>Sell Rate:</b> ${Final_Rate} &nbsp;&nbsp;&nbsp;
+                    <b>Greenscreens:</b> ${total_all_in} | {confidence}%<br><br>
+                    <b style="color:#555;">Rates</b><br>
+                    <b>Buy Rate:</b> ${total_cost} &nbsp;&nbsp;
+                    <b>Sell Rate:</b> ${Final_Rate} &nbsp;&nbsp;
                     <b>Markup:</b> ${markup}<br>
-                    <b>Layover:</b> ${adj_layover} &nbsp;&nbsp;&nbsp;
-                    <b>Extra Stops:</b> ${adj_extra_stops} &nbsp;&nbsp;&nbsp;
-                    <b>Extra Miles:</b> ${int(adj_extra_miles_plus_margin)} &nbsp;&nbsp;&nbsp;
+                    <b>Correction Factor:</b> ${int(correction_factor)}<br><br>
+                    <b style="color:#555;">Extras</b><br>
+                    <b>Layover:</b> ${adj_layover} &nbsp;&nbsp;
+                    <b>Extra Stops:</b> ${adj_extra_stops} &nbsp;&nbsp;
+                    <b>Extra Miles:</b> ${int(adj_extra_miles_plus_margin)}<br><br>
+                    <b style="color:#555;">Market Info</b><br>
                     <b>MCI:</b> {mci_origin} → {mci_destination}
                 </div>
                 """,
-            unsafe_allow_html=True
+                unsafe_allow_html=True
             )
+
 
     total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 0)
     with st.container():
@@ -968,7 +998,7 @@ if st.button("Calculate"):
             markup_mode,
             user_markup if markup_mode == "Yes" else None
         )
-        
+   
         
         
    
