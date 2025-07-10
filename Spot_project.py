@@ -649,6 +649,7 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
         Final_Rate = round_to_nearest_5(total_cost * (1 + Mark_up) + chaos_premium)
 
         Manual_adj_buy = total_cost - base_rate_for_rpm
+        
         correction_factor = effective_avg_rate - DAT_average if effective_avg_rate is not None else 0
 
         adj_layover = layover  
@@ -731,26 +732,30 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
 
 
     total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 0)
-    with st.container():
-        st.markdown(
-            f"""
-            <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
-                        border-left:6px solid #ffecb5; border-radius:8px;">
-                <b style="font-size:15px;">Chaos Metrics</b><br><br>
-                <b>Stops:</b> {Stops}<br>
-                <b>Volatility:</b> {chaos_data['volatility']}<br>
-                <b>Skew:</b> {chaos_data['skew']}<br>
-                <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
-                <b>Skew Premium:</b> ${chaos_data['skew_premium']}<br>
-                <b>Chaos Premium:</b> <b>${chaos_data['chaos_premium']}</b><br>
-                <b>Risk Level:</b> <span style="color: {'red' if chaos_data['risk_level']=="High Risk" else 'orange' if chaos_data['risk_level']=="Moderate Risk" else 'green'};">
-                {chaos_data['risk_level']}</span><br><br>
-                <b>Total Markup %:</b>
-                <span style="font-size:16px; color:#003366;"><b>{total_markup_pct}%</b></span>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+
+    if pricing_mode == "Spot":
+        with st.container():
+            st.markdown(
+                f"""
+                <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
+                            border-left:6px solid #ffecb5; border-radius:8px;">
+                    <b style="font-size:15px;">Chaos Metrics</b><br><br>
+                    <b>Stops:</b> {Stops}<br>
+                    <b>Volatility:</b> {chaos_data['volatility']}<br>
+                    <b>Skew:</b> {chaos_data['skew']}<br>
+                    <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
+                    <b>Skew Premium:</b> ${chaos_data['skew_premium']}<br>
+                    <b>Chaos Premium:</b> <b>${chaos_data['chaos_premium']}</b><br>
+                    <b>Risk Level:</b> <span style="color: {'red' if chaos_data['risk_level']=="High Risk" else 'orange' if chaos_data['risk_level']=="Moderate Risk" else 'green'};">
+                    {chaos_data['risk_level']}</span><br><br>
+                    <b>Total Markup %:</b>
+                    <span style="font-size:16px; color:#003366;"><b>{total_markup_pct}%</b></span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    else:
+        st.info("This is a contract load. Chaos metrics are not applicable.")
 
 
 
@@ -922,7 +927,17 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
     adjusted_base_rate = raw_avg * (1 + Mark_up)
 
     
-    chaos_data = calculate_chaos_premiums(raw_avg, DAT_high, DAT_low, DAT_miles, adjusted_base_rate)
+    if pricing_mode == "Spot":
+        chaos_data = calculate_chaos_premiums(raw_avg, DAT_high, DAT_low, DAT_miles, adjusted_base_rate)
+    else:
+        chaos_data = {
+            "volatility": 0,
+            "skew": 0,
+            "volatility_premium": 0,
+            "skew_premium": 0,
+            "chaos_premium": 0,
+            "risk_level": "N/A"
+        }
 
     
     gs_data = get_greenscreens_rate(locations_input, equipment_type)
@@ -932,7 +947,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         
         
         use_gs = True
-        if pricing_mode == "Contract" and chaos_data["volatility"] >= 0.1:
+        if pricing_mode == "Contract":
             use_gs = False
 
 
@@ -1002,6 +1017,10 @@ if st.button("Calculate"):
         )
    
         
+        
+            
+
+
         
    
         
