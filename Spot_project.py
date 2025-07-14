@@ -309,8 +309,8 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
         origin_spot = parse_location_string_spots(locations[0])
         destination_spot = parse_location_string_spots(locations[-1])
 
-        print("Origin:", origin)
-        print("Destination:", destination)
+        print("Origin:", origin_spot)
+        print("Destination:", destination_spot)
 
         try:
 
@@ -329,14 +329,11 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             per_trip_data = data_forecast.get("forecasts", {}).get("perTrip", [])
             monthly_values = defaultdict(list)
 
-            monthly_values = defaultdict(lambda: {"avg": [], "low": [], "high": []})
+            monthly_values = defaultdict(lambda: {"avg": []})
 
             for point in per_trip_data:
                 date_str = point.get("forecastDate")
                 avg_usd = point.get("forecastUSD", 0)
-                mae_data = point.get("mae", {})
-                low_usd = mae_data.get("lowUSD", 0)
-                high_usd = mae_data.get("highUSD", 0)
 
                 if not date_str or avg_usd == 0:
                     continue
@@ -345,8 +342,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 year_month = (date.year, date.month)
 
                 monthly_values[year_month]["avg"].append(avg_usd)
-                monthly_values[year_month]["low"].append(low_usd)
-                monthly_values[year_month]["high"].append(high_usd)
 
            
             sorted_months = sorted(monthly_values.keys())
@@ -360,16 +355,12 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 values = monthly_values[ym]
                 
                 med_avg  = statistics.median(values["avg"])
-                med_low  = statistics.median(values["low"])
-                med_high = statistics.median(values["high"])
 
                 monthly_medians.append(med_avg)
 
                 monthly_forecasts.append({
                     "date": f"{year}-{month:02d}-01T00:00:00Z",
                     "forecastUSD": int(med_avg),
-                    "lowUSD": int(med_low),
-                    "highUSD": int(med_high)
                 })
 
             if not monthly_medians:
@@ -381,37 +372,62 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             mileage = data_forecast.get("mileage", 0)
 
             for point in monthly_forecasts:
-                print(f"{point['date']} - Avg: ${point['forecastUSD']} | Low: ${point['lowUSD']} | High: ${point['highUSD']}")
+                print(f"{point['date']} - Avg: ${point['forecastUSD']}")
 
 
-            # --- Spot request for fuel ---
-            fuel_body = [
+            # --- Spot request for fuel, high, low (Contract Mode) ---
+
+            if selected_months >= 12:
+                specific_timeframe = "180_DAYS"
+                rateType = 'CONTRACT'
+            elif selected_months >= 3:
+                specific_timeframe = "90_DAYS"
+                rateType = 'SPOT'
+            elif selected_months == 2:
+                specific_timeframe = "60_DAYS"
+                rateType = 'SPOT'
+            else:
+                specific_timeframe = "30_DAYS"
+                rateType = 'SPOT'
+
+            spot_body_contract = [
                 {
                     "origin": origin_spot,
                     "destination": destination_spot,
-                    "rateType": "SPOT",
+                    "rateType": rateType,
                     "equipment": equipment_type,
                     "includeMyRate": True,
                     "targetEscalation": {
-                        "escalationType": "BEST_FIT"
+                        "escalationType": "SPECIFIC_AREA_TYPE_AND_SPECIFIC_TIME_FRAME",
+                        "specificTimeFrame": specific_timeframe,
+                        "specificAreaType": "MARKET_AREA"
                     }
                 }
             ]
 
-            fuel_response = requests.post(url_spot, headers=headers, json=fuel_body)
-            fuel_response.raise_for_status()
-            fuel_data = fuel_response.json()
-            fuel_response_data = fuel_data["rateResponses"][0]["response"]
 
-            rate_block = fuel_response_data.get("rate", {})
+            spot_response = requests.post(url_spot, headers=headers, json=spot_body_contract)
+            spot_response.raise_for_status()
+            spot_data = spot_response.json()
+
+            rate_block = spot_data["rateResponses"][0]["response"]["rate"]["perTrip"]
+
             fuel_per_trip = rate_block.get("averageFuelSurchargePerTripUsd", 0)
+            contract_highUSD = rate_block.get("highUsd", 0)
+            contract_lowUSD = rate_block.get("lowUsd", 0)
+
+            print('high:',contract_highUSD)
+            print('low:',contract_lowUSD)
 
             return {
                 "rate": average_rate,
                 "miles": mileage,
                 "fuel_per_trip": fuel_per_trip,
-                "monthly_forecasts": monthly_forecasts
+                "monthly_forecasts": monthly_forecasts,
+                "contract_highUSD": contract_highUSD,
+                "contract_lowUSD": contract_lowUSD
             }
+
         
 
         except Exception as e:
@@ -732,9 +748,8 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
 
 
     total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 0)
-
-    if pricing_mode == "Spot":
-        with st.container():
+        
+    with st.container():
             st.markdown(
                 f"""
                 <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
@@ -754,9 +769,6 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
                 """,
                 unsafe_allow_html=True
             )
-    else:
-        st.info("This is a contract load. Chaos metrics are not applicable.")
-
 
 
 
@@ -907,12 +919,11 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         DAT_high = dat_result["high"]
         DAT_low = dat_result["low"]
     else:
-        forecasts = dat_result["monthly_forecasts"]  # ← si estás seguro que existe
-        DAT_high = sum(p["highUSD"] for p in forecasts) / len(forecasts)
-        DAT_low = sum(p["lowUSD"] for p in forecasts) / len(forecasts)
-
+        DAT_high = dat_result["contract_highUSD"]
+        DAT_low = dat_result["contract_lowUSD"]
 
     mci_data = get_MCI_scores(locations_input, equipment_type, url_MCI)
+
     if not mci_data:
         st.error("Failed to retrieve MCI data.")
         return
@@ -927,17 +938,14 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
     adjusted_base_rate = raw_avg * (1 + Mark_up)
 
     
-    if pricing_mode == "Spot":
-        chaos_data = calculate_chaos_premiums(raw_avg, DAT_high, DAT_low, DAT_miles, adjusted_base_rate)
-    else:
-        chaos_data = {
-            "volatility": 0,
-            "skew": 0,
-            "volatility_premium": 0,
-            "skew_premium": 0,
-            "chaos_premium": 0,
-            "risk_level": "N/A"
-        }
+    chaos_data = calculate_chaos_premiums(
+        raw_avg,
+        DAT_high,
+        DAT_low,
+        DAT_miles,
+        adjusted_base_rate
+    )
+
 
     
     gs_data = get_greenscreens_rate(locations_input, equipment_type)
