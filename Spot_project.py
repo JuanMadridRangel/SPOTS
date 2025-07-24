@@ -910,10 +910,10 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         st.error("No DAT result returned.")
         return
 
-    raw_avg = dat_result["rate"]
     DAT_fuel_per_trip = dat_result["fuel_per_trip"]
     DAT_miles = dat_result["miles"]
     DAT_average = dat_result["rate"] + round(DAT_fuel_per_trip, 0)
+    raw_avg = DAT_average  
 
     if pricing_mode == "Spot":
         DAT_high = dat_result["high"]
