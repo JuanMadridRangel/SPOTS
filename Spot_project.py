@@ -411,8 +411,9 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             spot_data = spot_response.json()
 
             rate_block = spot_data["rateResponses"][0]["response"]["rate"]["perTrip"]
+            rate_block_fuel = spot_data["rateResponses"][0]["response"]["rate"]
 
-            fuel_per_trip = rate_block.get("averageFuelSurchargePerTripUsd", 0)
+            fuel_per_trip = rate_block_fuel.get("averageFuelSurchargePerTripUsd", 0)
             contract_highUSD = rate_block.get("highUsd", 0)
             contract_lowUSD = rate_block.get("lowUsd", 0)
 
