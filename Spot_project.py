@@ -497,8 +497,8 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
         destination_data = destination_response.json()
 
         # Extract values — validate structure before indexing
-        mci_origin = origin_data[0]["marketConditionsForecasts"][0]["mciScore"]
-        mci_destination = destination_data[0]["marketConditionsForecasts"][0]["mciScore"]
+        mci_origin = origin_data[0]["marketConditionsIndexes"][0]["mciScore"]
+        mci_destination = destination_data[0]["marketConditionsIndexes"][0]["mciScore"]
 
         print(mci_origin,mci_destination)
 
@@ -1038,6 +1038,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
