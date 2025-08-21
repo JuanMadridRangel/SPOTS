@@ -458,27 +458,31 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
 
             f"page=0"
             f"&pageSize=10"
+            f"&areaType=MARKET_AREA"
+            f"&direction=OUTBOUND"
+            f"&equipmentCategory={equipment_type}"
+            f"&timeframe=PREVIOUS_BUSINESS_DAY"
             f"&city={origin.get('city')}"
             f"&stateOrProvince={origin.get('stateOrProvince')}"
             f"&country=US"
-            f"&areaType=MARKET_AREA"
-            f"&equipmentCategory={equipment_type}"
-            f"&timeframe=EIGHT_DAY_FORECAST"
-            f"&direction=OUTBOUND"
+            
+            
             
         )
 
         mci_destination_body = (
 
-        f"page=0"
-        f"&pageSize=10"
-        f"&city={destination.get('city')}"
-        f"&stateOrProvince={destination.get('stateOrProvince')}"
-        f"&country=US"
-        f"&areaType=MARKET_AREA"
-        f"&equipmentCategory={equipment_type}"
-        f"&timeframe=EIGHT_DAY_FORECAST"
-        f"&direction=OUTBOUND"
+            f"page=0"
+            f"&pageSize=10"
+            f"&areaType=MARKET_AREA"
+            f"&direction=OUTBOUND"
+            f"&equipmentCategory={equipment_type}"
+            f"&timeframe=PREVIOUS_BUSINESS_DAY"
+            f"&city={destination.get('city')}"
+            f"&stateOrProvince={destination.get('stateOrProvince')}"
+            f"&country=US"
+            
+            
             
         )
 
@@ -1034,5 +1038,6 @@ if st.button("Calculate"):
    
         
         
+
 
 
