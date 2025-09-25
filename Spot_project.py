@@ -647,8 +647,11 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
             layover = layover_count * 200
             increase_per_stop = round((stops / 4) * 150, 2) if stops > 4 else 0 
 
-
-        base_rate_for_rpm = effective_avg_rate if effective_avg_rate is not None else DAT_average
+        if stops > 0:
+            base_rate_for_rpm = DAT_average
+        else:
+            base_rate_for_rpm = effective_avg_rate if effective_avg_rate is not None else DAT_average
+            
         RPM = base_rate_for_rpm / DAT_miles
         mileage_charge = RPM * total_distance_miles
 
@@ -951,24 +954,28 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         adjusted_base_rate
     )
 
-
-    
     gs_data = get_greenscreens_rate(locations_input, equipment_type)
     if gs_data:
         total_all_in = gs_data["rate_per_mile"]
         confidence = gs_data["confidence"]
-        
-        
+
+        # calcula stops ANTES del if
+        stops = max(0, len(locations_input) - 2)
+
         use_gs = True
         if pricing_mode == "Contract":
             use_gs = False
 
-
-        if use_gs:
-            effective_avg, blend_label = get_effective_avg_rate_with_blending(DAT_average, total_all_in, confidence)
+       
+        if use_gs and stops == 0:
+            
+            effective_avg, blend_label = get_effective_avg_rate_with_blending(
+                DAT_average, total_all_in, confidence
+            )
         else:
+
             effective_avg = DAT_average
-            blend_label = "100% DAT"
+            blend_label = "100% DAT (stops>0)" if stops > 0 else "100% DAT"
 
         st.caption(f"Base Rate used for cost calculation: {blend_label}")
     else:
@@ -977,7 +984,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         effective_avg = DAT_average
         blend_label = "100% DAT"
         st.caption("Base Rate used: 100% DAT (no GS data)")
-
+        
     if "quote_history" not in st.session_state:
         st.session_state.quote_history = []
 
@@ -1038,6 +1045,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
