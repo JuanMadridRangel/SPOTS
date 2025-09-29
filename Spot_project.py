@@ -151,7 +151,15 @@ col1, col2 = st.columns(2)
 with col1:
     opcion_stops = st.selectbox("Select Customer:", ["Fabuwood Cabinetry", "Other"])
 with col2:
-    equipment_type = st.selectbox("Select Equipment Type:", ["VAN", "FLATBED", "REEFER"])
+    equipment_type = st.selectbox("Select Equipment Type:", ["VAN", "FLATBED", "REEFER", "STEPDECK", "CONESTOGA", "HOTSHOT"])
+
+# weight para HOTSHOT
+hotshot_weight_lbs = None
+if equipment_type == "HOTSHOT":
+    hotshot_weight_lbs = st.number_input(
+        "Hotshot weight (lbs)",
+        min_value=0, max_value=40000, value=8000, step=500
+    )
 
 # -----------------------------
 # LOGIC: VALUE PER STOP BASED ON CUSTOMER
@@ -207,17 +215,22 @@ def get_mci_adjustment(mci_score, rules):
 
 def calculate_auto_markup(mci_data, equipment_type):
     if not mci_data:
-        return 0.07 if equipment_type == "VAN" else 0.12
+        return 0.01
 
     origin_mci = mci_data["origin_mci"]
     destination_mci = mci_data["destination_mci"]
 
+    # Base por equipo
     if equipment_type == "VAN":
         base_markup = 0.08
     elif equipment_type in ["REEFER", "FLATBED"]:
         base_markup = 0.12
+    elif equipment_type == "STEPDECK":
+        base_markup = 0.12 + 0.06   # Flatbed (12%) + 6 pp = 18%
+    elif equipment_type == "CONESTOGA":
+        base_markup = 0.12 + 0.08   # Flatbed (12%) + 8 pp = 20%
     else:
-        base_markup = 0.1
+        base_markup = 0.10
 
     origin_rules = [
         (lambda x: x >= 90, 0.02),
@@ -225,7 +238,6 @@ def calculate_auto_markup(mci_data, equipment_type):
         (lambda x: x >= 50, 0.01),
         (lambda x: x <= -75, 0.01)
     ]
-
     destination_rules = [
         (lambda x: x >= 75, -0.02),
         (lambda x: x >= 50, -0.01),
@@ -236,6 +248,14 @@ def calculate_auto_markup(mci_data, equipment_type):
     dest_adj = get_mci_adjustment(destination_mci, destination_rules)
 
     return base_markup + origin_adj + dest_adj
+
+
+# -----------------------------
+# FUNCTION: Identify equipment 
+# -----------------------------
+
+def provider_equipment(equipment_type: str) -> str:
+    return "FLATBED" if equipment_type in ("STEPDECK", "CONESTOGA", "HOTSHOT") else equipment_type
 
 
 # -----------------------------
@@ -267,7 +287,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 "origin": origin,
                 "destination": destination,
                 "rateType": "SPOT",
-                "equipment": equipment_type,
+                "equipment": provider_equipment(equipment_type),
                 "includeMyRate": True,
                 "targetEscalation": target_escalation
             }
@@ -318,7 +338,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             body_forecast = {
                 "origin": origin,
                 "destination": destination,
-                "equipmentCategory": equipment_type,
+                "equipmentCategory": provider_equipment(equipment_type),
                 "forecastPeriod": "52WEEKS"
             }
 
@@ -419,6 +439,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 
             print('high:',contract_highUSD)
             print('low:',contract_lowUSD)
+            print("Fuel:",fuel_per_trip)
 
             return {
                 "rate": average_rate,
@@ -460,7 +481,7 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
             f"&pageSize=10"
             f"&areaType=MARKET_AREA"
             f"&direction=OUTBOUND"
-            f"&equipmentCategory={equipment_type}"
+            f"&equipmentCategory={provider_equipment(equipment_type)}"
             f"&timeframe=PREVIOUS_BUSINESS_DAY"
             f"&city={origin.get('city')}"
             f"&stateOrProvince={origin.get('stateOrProvince')}"
@@ -476,7 +497,7 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
             f"&pageSize=10"
             f"&areaType=MARKET_AREA"
             f"&direction=OUTBOUND"
-            f"&equipmentCategory={equipment_type}"
+            f"&equipmentCategory={provider_equipment(equipment_type)}"
             f"&timeframe=PREVIOUS_BUSINESS_DAY"
             f"&city={destination.get('city')}"
             f"&stateOrProvince={destination.get('stateOrProvince')}"
@@ -549,7 +570,7 @@ def get_greenscreens_rate(locations, equipment_type):
 
         body = {
             "pickupDateTime": datetime.now(timezone.utc).isoformat(),
-            "transportType": equipment_type,
+            "transportType": provider_equipment(equipment_type),
             "stops": [
                 {
                     "order": 0,
@@ -628,7 +649,7 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
         response = requests.post(base_url, json=request_body, headers=headers)
         data = response.json()
         # 1. Calculate Google miles (real route distance)
-        total_distance_miles = round(sum(route["distanceMeters"] for route in data["routes"]) / 1609.34)
+        total_distance_miles = round(sum(route["distanceMeters"] for route in data["routes"]) / 1609.344)
 
 
         # 2. Layover logic
@@ -912,12 +933,12 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles, adjusted_base_ra
 # RUN PRICING FLOW
 # -----------------------------
 
-def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode, user_markup=None):
+def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode, user_markup=None, hotshot_weight_lbs=None):
     dat_result = get_DAT_data(locations_input, equipment_type, pricing_mode, selected_months)
     if not dat_result:
         st.error("No DAT result returned.")
         return
-        
+
     raw_avg = dat_result["rate"]
     DAT_fuel_per_trip = dat_result["fuel_per_trip"]
     DAT_miles = dat_result["miles"]
@@ -954,6 +975,8 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         adjusted_base_rate
     )
 
+
+    
     gs_data = get_greenscreens_rate(locations_input, equipment_type)
     if gs_data:
         total_all_in = gs_data["rate_per_mile"]
@@ -968,7 +991,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
 
        
         if use_gs and stops == 0:
-            
+
             effective_avg, blend_label = get_effective_avg_rate_with_blending(
                 DAT_average, total_all_in, confidence
             )
@@ -984,7 +1007,14 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         effective_avg = DAT_average
         blend_label = "100% DAT"
         st.caption("Base Rate used: 100% DAT (no GS data)")
+
+    print(equipment_type)
+    if equipment_type == "HOTSHOT":
+        w = hotshot_weight_lbs or 0 
+        hotshot_factor = 1.0 if w > 10000 else 0.8
+        effective_avg = round(effective_avg * hotshot_factor)
         
+
     if "quote_history" not in st.session_state:
         st.session_state.quote_history = []
 
@@ -1000,7 +1030,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
     if not route_data:
         st.error("Error processing route information.")
         return
-
+    
     final_rate =  route_data["final_rate"]
     lane_display = f"{origin_city}, {origin_state} → {destination_city}, {destination_state}"  
 
@@ -1033,7 +1063,8 @@ if st.button("Calculate"):
             equipment_type,
             pricing_mode,
             markup_mode,
-            user_markup if markup_mode == "Yes" else None
+            user_markup if markup_mode == "Yes" else None,
+            hotshot_weight_lbs
         )
    
         
@@ -1042,9 +1073,14 @@ if st.button("Calculate"):
 
 
         
+            
+
+
+        
    
         
         
+
 
 
 
