@@ -257,6 +257,25 @@ def calculate_auto_markup(mci_data, equipment_type):
 def provider_equipment(equipment_type: str) -> str:
     return "FLATBED" if equipment_type in ("STEPDECK", "CONESTOGA", "HOTSHOT") else equipment_type
 
+# -----------------------------
+# FUNCTION: Stops Greenscreens  
+# -----------------------------
+
+def build_stops_from_locations(locations: list) -> list:
+    
+    stops = []
+    for idx, loc in enumerate(locations):
+        parsed = parse_location_string_spots(loc)
+        if not parsed:
+            continue
+        stops.append({
+            "order": idx,
+            "city": parsed.get("city", ""),
+            "state": parsed.get("stateOrProvince", ""),
+            "country": "US",
+            "zip": parsed.get("postalCode", "")
+        })
+    return stops
 
 # -----------------------------
 # FUNCTION: GET DAT RATE DATA
@@ -565,28 +584,12 @@ def get_greenscreens_rate(locations, equipment_type):
             return None
         
         # Step 2: Build body for prediction
-        origin = parse_location_string_spots(locations[0])
-        destination = parse_location_string_spots(locations[-1])
+        stops_array = build_stops_from_locations(locations)
 
         body = {
             "pickupDateTime": datetime.now(timezone.utc).isoformat(),
             "transportType": provider_equipment(equipment_type),
-            "stops": [
-                {
-                    "order": 0,
-                    "city": origin["city"],
-                    "state": origin["stateOrProvince"],
-                    "country": "US",
-                    "zip": origin.get("postalCode", "")
-                },
-                {
-                    "order": 1,
-                    "city": destination["city"],
-                    "state": destination["stateOrProvince"],
-                    "country": "US",
-                    "zip": destination.get("postalCode", "")
-                }
-            ],
+            "stops":stops_array,
             "commodity": "General Freight",
             "currency": "USD"
         }
@@ -603,6 +606,8 @@ def get_greenscreens_rate(locations, equipment_type):
         rpm = data.get("targetBuyRate", 0)
         distance = data.get("distance", 0)
         confidence = data.get("confidenceLevel", 0)
+
+        
         total_all_in = int((rpm) * distance)
 
         print(total_all_in,confidence)
@@ -745,31 +750,39 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
     total_all_in = gs_data["rate_per_mile"]
     confidence = gs_data["confidence"]
 
+    gs_spot_sell = None
+
+    if route_data["Stops"] > 0 and total_all_in:
+        gs_spot_sell = round(total_all_in * (1 + Mark_up))
 
 
     with st.container():
             st.markdown(
                 f"""
                 <div style="background-color:#f8f9fa;padding:15px 20px;border-radius:8px;
-                            border:1px solid #ccc;margin-top:15px;font-family:sans-serif;
+                            border:1px solid #ccc;margin-top:12px;font-family:sans-serif;
                             font-size:14px;line-height:1.7;">
-                    <b style="color:#555;">DAT/GS</b><br>
-                    <b>Google Miles:</b> {total_distance_miles} &nbsp;&nbsp;
-                    <b>DAT Miles:</b> {DAT_miles}<br>
-                    <b>DAT Avg Rate:</b> ${int(DAT_average)} &nbsp;&nbsp;
-                    <b>Base Rate:</b> ${int(effective_avg)}<br>
-                    <b>Greenscreens:</b> ${total_all_in} | {confidence}%<br><br>
-                    <b style="color:#555;">Rates</b><br>
-                    <b>Buy Rate:</b> ${total_cost} &nbsp;&nbsp;
-                    <b>Sell Rate:</b> ${Final_Rate} &nbsp;&nbsp;
-                    <b>Markup:</b> ${markup}<br>
-                    <b>Correction Factor:</b> ${int(correction_factor)}<br><br>
-                    <b style="color:#555;">Extras</b><br>
-                    <b>Layover:</b> ${adj_layover} &nbsp;&nbsp;
-                    <b>Extra Stops:</b> ${adj_extra_stops} &nbsp;&nbsp;
-                    <b>Extra Miles:</b> ${int(adj_extra_miles_plus_margin)}<br><br>
-                    <b style="color:#555;">Market Info</b><br>
-                    <b>MCI:</b> {mci_origin} → {mci_destination}
+                <b style="color:#555;">DAT/GS</b><br>
+                <b>Google Miles:</b> {total_distance_miles} &nbsp;&nbsp;
+                <b>DAT Miles:</b> {DAT_miles}<br>
+                <b>DAT Avg Rate:</b> ${int(DAT_average)} &nbsp;&nbsp;
+                <b>Base Rate:</b> ${int(effective_avg)}<br>
+                {
+                    f"<b>Greenscreens multi Rate (Sell):</b> ${gs_spot_sell}<br>"
+                    if gs_spot_sell else
+                    f"<b>Greenscreens:</b> ${total_all_in} | {confidence}%<br>"
+                }
+                <br><b style="color:#555;">Rates</b><br>
+                <b>Buy Rate:</b> ${total_cost} &nbsp;&nbsp;
+                <b>Sell Rate:</b> ${Final_Rate} &nbsp;&nbsp;
+                <b>Markup:</b> ${markup}<br>
+                <b>Correction Factor:</b> ${int(correction_factor)}<br><br>
+                <b style="color:#555;">Extras</b><br>
+                <b>Layover:</b> ${adj_layover} &nbsp;&nbsp;
+                <b>Extra Stops:</b> ${adj_extra_stops} &nbsp;&nbsp;
+                <b>Extra Miles:</b> ${int(adj_extra_miles_plus_margin)}<br><br>
+                <b style="color:#555;">Market Info</b><br>
+                <b>MCI:</b> {mci_origin} → {mci_destination}
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -1080,6 +1093,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
