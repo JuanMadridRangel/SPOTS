@@ -768,7 +768,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
                 <b>DAT Avg Rate:</b> ${int(DAT_average)} &nbsp;&nbsp;
                 <b>Base Rate:</b> ${int(effective_avg)}<br>
                 {
-                    f"<b>Greenscreens multi Rate (Sell):</b> ${gs_spot_sell}<br>"
+                    f"<b>Greenscreens multi Rate (Sell):</b> ${gs_spot_sell} | {confidence}%<br>"
                     if gs_spot_sell else
                     f"<b>Greenscreens:</b> ${total_all_in} | {confidence}%<br>"
                 }
@@ -1093,6 +1093,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
