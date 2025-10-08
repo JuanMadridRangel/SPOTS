@@ -108,8 +108,6 @@ st.markdown("""
 <style>
 /* Container: pastel gradient + frosted card + shadow */
 [data-testid="stSidebar"] {
-    width: 380px;
-    min-width: 380px;
     background: linear-gradient(180deg, #f8fbfd 0%, #e6f6fb 45%, #e8f7f6 100%);
     padding: 26px 22px;
     border-right: 1px solid rgba(22, 31, 45, 0.04);
@@ -1266,6 +1264,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
