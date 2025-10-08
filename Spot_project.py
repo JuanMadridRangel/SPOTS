@@ -831,7 +831,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
     adj_extra_stops = route_data["extra_stops"]
     adj_extra_miles_plus_margin = route_data["extra_miles"]
     correction_factor= route_data["Correction_factor"]
-    
+    stops= route_data["Stops"] + 1
     mci_origin = mci_data["origin_mci"]
     mci_destination = mci_data["destination_mci"]
     origin= route_data["Origin"]
@@ -903,7 +903,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
                         </div>
                         <div style="text-align:right">
                             <div style="font-size:14px;color:#333;font-weight:700">Distance</div>
-                            <div style="font-size:13px;color:#666">{total_distance_miles} mi (Google) · {DAT_miles} mi (DAT)</div>
+                            <div style="font-size:13px;color:#666">{stops} stops · {total_distance_miles} mi (Google) · {DAT_miles} mi (DAT)</div>
                         </div>
                     </div>
                     <!-- Grid: left market / right rates -->
@@ -1264,6 +1264,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
