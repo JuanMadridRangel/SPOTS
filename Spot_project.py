@@ -903,7 +903,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
                         </div>
                         <div style="text-align:right">
                             <div style="font-size:14px;color:#333;font-weight:700">Distance</div>
-                            <div style="font-size:13px;color:#666">{stops} stops · {total_distance_miles} mi (Google) · {DAT_miles} mi (DAT)</div>
+                            <div style="font-size:13px;color:#666">{stops} Stop · {total_distance_miles} mi (Google) · {DAT_miles} mi (DAT)</div>
                         </div>
                     </div>
                     <!-- Grid: left market / right rates -->
@@ -1264,6 +1264,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
