@@ -826,7 +826,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
     effective_avg = route_data["effective_avg_rate"]
     total_cost = route_data["total_cost"]
     Final_Rate = route_data["final_rate"]
-    markup = int(Final_Rate - chaos_data['chaos_premium'] - total_cost)
+    markup = int(Final_Rate - total_cost) #- chaos_data['chaos_premium'])
     adj_layover = route_data["layover"]
     adj_extra_stops = route_data["extra_stops"]
     adj_extra_miles_plus_margin = route_data["extra_miles"]
@@ -1264,6 +1264,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
