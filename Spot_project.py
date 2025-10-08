@@ -518,36 +518,112 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 specific_timeframe = "30_DAYS"
                 rateType = 'SPOT'
 
-            spot_body_contract = [
-                {
-                    "origin": origin_spot,
-                    "destination": destination_spot,
-                    "rateType": rateType,
-                    "equipment": provider_equipment(equipment_type),
-                    "includeMyRate": True,
-                    "targetEscalation": {
-                        "escalationType": "SPECIFIC_AREA_TYPE_AND_SPECIFIC_TIME_FRAME",
-                        "specificTimeFrame": specific_timeframe,
-                        "specificAreaType": "MARKET_AREA"
+            # --- Spot/Contract request with simple fallback to EXTENDED_MARKET_AREA ---
+            area_sequence = ["MARKET_AREA", "EXTENDED_MARKET_AREA"]
+            spot_result = None
+            debug = True
+
+            for area_type in area_sequence:
+                spot_body = [
+                    {
+                        "origin": origin_spot,
+                        "destination": destination_spot,
+                        "rateType": rateType,
+                        "equipment": provider_equipment(equipment_type),
+                        "includeMyRate": True,
+                        "targetEscalation": {
+                            "escalationType": "SPECIFIC_AREA_TYPE_AND_SPECIFIC_TIME_FRAME",
+                            "specificTimeFrame": specific_timeframe,
+                            "specificAreaType": area_type
+                        }
                     }
+                ]
+
+                if debug:
+                    print(f"Trying spot request with specificAreaType={area_type} timeframe={specific_timeframe}")
+
+                try:
+                    spot_response = requests.post(url_spot, headers=headers, json=spot_body)
+                    spot_response.raise_for_status()
+                    spot_data = spot_response.json()
+                    if debug:
+                        print(json.dumps(spot_data, indent=2))
+                except Exception as e:
+                    print("Spot request error:", e)
+                    continue
+
+                # check for rateResponses and errors
+                rate_responses = spot_data.get("rateResponses", [])
+                if not rate_responses:
+                    print(f"No rateResponses for area_type={area_type}")
+                    continue
+
+                first = rate_responses[0]
+                resp = first.get("response", {})
+
+                # if API returned errors, and specifically "No rates available.", try next area
+                errors = resp.get("errors")
+                if errors:
+                    print(f"API errors for {area_type}:", errors)
+                    no_rates_flag = any("No rates available" in e.get("message", "") for e in errors)
+                    if no_rates_flag:
+                        print(f"No rates available for {area_type}, trying next fallback...")
+                        continue
+                    else:
+                        # other errors — skip and try next area
+                        continue
+
+                # safe extraction of rate object
+                rate_obj = resp.get("rate")
+                if not rate_obj:
+                    print(f"No 'rate' object for {area_type}")
+                    continue
+
+                # extract perTrip safely (could be dict or list)
+                per_trip = rate_obj.get("perTrip")
+                if isinstance(per_trip, list) and len(per_trip) > 0:
+                    per_trip_entry = per_trip[0]
+                elif isinstance(per_trip, dict):
+                    per_trip_entry = per_trip
+                else:
+                    per_trip_entry = {}
+
+                fuel_per_trip = rate_obj.get("averageFuelSurchargePerTripUsd",
+                                            per_trip_entry.get("averageFuelSurchargePerTripUsd", 0))
+                contract_highUSD = per_trip_entry.get("highUsd", rate_obj.get("highUsd", 0))
+                contract_lowUSD  = per_trip_entry.get("lowUsd",  rate_obj.get("lowUsd", 0))
+
+                # we have a valid result — store and break
+                spot_result = {
+                    "fuel_per_trip": fuel_per_trip,
+                    "contract_highUSD": contract_highUSD,
+                    "contract_lowUSD": contract_lowUSD,
+                    "used_area_type": area_type,
+                    "raw": spot_data
                 }
-            ]
+                break  # stop trying further fallbacks
 
+            # after loop: check results
+            if spot_result is None:
+                st.warning("No DAT spot/contract rate found (tried MARKET_AREA and EXTENDED_MARKET_AREA).")
+                # fallback: return forecast-based rate with zeros for fuel/high/low
+                return {
+                    "rate": average_rate,
+                    "miles": mileage,
+                    "fuel_per_trip": 0,
+                    "monthly_forecasts": monthly_forecasts,
+                    "contract_highUSD": 0,
+                    "contract_lowUSD": 0
+                }
 
-            spot_response = requests.post(url_spot, headers=headers, json=spot_body_contract)
-            spot_response.raise_for_status()
-            spot_data = spot_response.json()
+            # success: build return using spot_result
+            fuel_per_trip = spot_result["fuel_per_trip"]
+            contract_highUSD = spot_result["contract_highUSD"]
+            contract_lowUSD = spot_result["contract_lowUSD"]
 
-            rate_block = spot_data["rateResponses"][0]["response"]["rate"]["perTrip"]
-            rate_block_fuel = spot_data["rateResponses"][0]["response"]["rate"]
-
-            fuel_per_trip = rate_block_fuel.get("averageFuelSurchargePerTripUsd", 0)
-            contract_highUSD = rate_block.get("highUsd", 0)
-            contract_lowUSD = rate_block.get("lowUsd", 0)
-
-            print('high:',contract_highUSD)
-            print('low:',contract_lowUSD)
-            print("Fuel:",fuel_per_trip)
+            print('high:', contract_highUSD)
+            print('low:', contract_lowUSD)
+            print('fuel:', fuel_per_trip)
 
             return {
                 "rate": average_rate,
@@ -556,14 +632,12 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 "monthly_forecasts": monthly_forecasts,
                 "contract_highUSD": contract_highUSD,
                 "contract_lowUSD": contract_lowUSD
-            }
-
-        
+            }   
 
         except Exception as e:
             st.error(f"Error calling DAT Contract logic: {e}")
             return None
-
+            
 # -----------------------------
 # FUNCTION: MCI NUMBERS
 
@@ -1264,6 +1338,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
