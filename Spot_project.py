@@ -608,6 +608,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 
             # after loop: check results
             if spot_result is None:
+                st.warning("No DAT spot/contract rate found (tried MARKET_AREA and EXTENDED_MARKET_AREA).")
                 # fallback: return forecast-based rate with zeros for fuel/high/low
                 return {
                     "rate": average_rate,
@@ -1324,6 +1325,7 @@ if st.button("Calculate"):
         )
    
         
+        
               
         
             
@@ -1341,6 +1343,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
