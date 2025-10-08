@@ -548,7 +548,7 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
 
         return {
             "origin_mci": mci_origin,
-            "destination_mci": mci_destination
+            "destination_mci": mci_destination,
         }
 
     except Exception as e:
@@ -695,8 +695,7 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
             )
 
 
-
-        Final_Rate = round_to_nearest_5(total_cost * (1 + Mark_up) + chaos_premium)
+        Final_Rate = round_to_nearest_5(total_cost * (1 + Mark_up)) #+ chaos_premium)
 
         Manual_adj_buy = total_cost - base_rate_for_rpm
         
@@ -720,7 +719,8 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
         "blend_label": blend_label,
         "effective_avg_rate": base_rate_for_rpm,
         "Stops": stops,
-        "Correction_factor": correction_factor
+        "Correction_factor": correction_factor,
+        "Origin": locations[0]
         }
     
     except Exception as e:
@@ -729,7 +729,7 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
 # -----------------------------
 # RESULT
 # -----------------------------  
-def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
+def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode):
 
     total_distance_miles = route_data["google_miles"]
     DAT_miles = route_data["dat_miles"]
@@ -741,48 +741,128 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
     adj_layover = route_data["layover"]
     adj_extra_stops = route_data["extra_stops"]
     adj_extra_miles_plus_margin = route_data["extra_miles"]
-    Stops= route_data["Stops"]
     correction_factor= route_data["Correction_factor"]
     
     mci_origin = mci_data["origin_mci"]
     mci_destination = mci_data["destination_mci"]
+    origin= route_data["Origin"]
 
     total_all_in = gs_data["rate_per_mile"]
     confidence = gs_data["confidence"]
-
+    print(total_all_in)
     gs_spot_sell = None
 
     if route_data["Stops"] > 0 and total_all_in:
         gs_spot_sell = round(total_all_in * (1 + Mark_up))
 
+    
+    if pricing_mode == "Contract":
+        
+        market_html = (
+            f"<div style='font-weight:700;color:#4b5563;margin-bottom:8px'>DAT Market</div>"
+            f"<div style='font-size:14px;color:#111'>"
+            f"<strong>DAT Avg Rate:</strong> ${int(DAT_average):,}<br>"
+            f"<strong>Base Rate:</strong> ${int(effective_avg):,}"
+            f"</div>"
+        )
+    else:
+        
+        if gs_spot_sell is not None:
+            
+            market_html = (
+                f"<div style='font-weight:700;color:#4b5563;margin-bottom:8px'>DAT Market</div>"
+                f"<div style='font-size:14px;color:#111'>"
+                f"<strong>DAT Avg Rate:</strong> ${int(DAT_average):,}<br>"
+                f"<strong>Base Rate:</strong> ${int(effective_avg):,}"
+                f"</div><br>"
+                f"<div style='font-weight:700;color:#4b5563;margin-bottom:8px'>Multi rate</div>"
+                f"<div style='font-size:14px;color:#111'>"
+                f"<strong>Greenscreens Multi Rate:</strong> ${gs_spot_sell:,} · {confidence}%<br>"
+                f"<span style='color:#6b7280;font-size:13px'><strong>DAT Multi Rate:</strong> ${Final_Rate:,}</span>"
+                f"</div>"
+            )
+        else:
+            
+            market_html = (
+                f"<div style='font-weight:700;color:#4b5563;margin-bottom:8px'>DAT Market</div>"
+                f"<div style='font-size:14px;color:#111'>"
+                f"<strong>DAT Avg Rate:</strong> ${int(DAT_average):,}<br>"
+                f"<strong>Base Rate:</strong> ${int(effective_avg):,}"
+                f"</div><br>"
+                f"<div style='font-weight:700;color:#4b5563;margin-bottom:8px'>Greenscreens Market</div>"
+                f"<div style='font-size:14px;color:#111'>"
+                f"<strong>Greenscreens Market:</strong> ${total_all_in:,} · {confidence}%"
+                f"</div>"
+            )
+
+
 
     with st.container():
             st.markdown(
                 f"""
-                <div style="background-color:#f8f9fa;padding:15px 20px;border-radius:8px;
-                            border:1px solid #ccc;margin-top:12px;font-family:sans-serif;
-                            font-size:14px;line-height:1.7;">
-                <b style="color:#555;">DAT/GS</b><br>
-                <b>Google Miles:</b> {total_distance_miles} &nbsp;&nbsp;
-                <b>DAT Miles:</b> {DAT_miles}<br>
-                <b>DAT Avg Rate:</b> ${int(DAT_average)} &nbsp;&nbsp;
-                <b>Base Rate:</b> ${int(effective_avg)}<br>
-                {
-                    f"<b>Greenscreens multi Rate (Sell):</b> ${gs_spot_sell} | {confidence}%<br>"
-                    if gs_spot_sell else
-                    f"<b>Greenscreens:</b> ${total_all_in} | {confidence}%<br>"
-                }
-                <br><b style="color:#555;">Rates</b><br>
-                <b>Buy Rate:</b> ${total_cost} &nbsp;&nbsp;
-                <b>Sell Rate:</b> ${Final_Rate} &nbsp;&nbsp;
-                <b>Markup:</b> ${markup}<br>
-                <b>Correction Factor:</b> ${int(correction_factor)}<br><br>
-                <b style="color:#555;">Extras</b><br>
-                <b>Layover:</b> ${adj_layover} &nbsp;&nbsp;
-                <b>Extra Stops:</b> ${adj_extra_stops} &nbsp;&nbsp;
-                <b>Extra Miles:</b> ${int(adj_extra_miles_plus_margin)}<br><br>
-                <b style="color:#555;">Market Info</b><br>
-                <b>MCI:</b> {mci_origin} → {mci_destination}
+                <div style="
+                    font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+                    color:#222;
+                    max-width:900px;
+                    margin:12px auto;
+                    ">
+                    <!-- Header: origin -> destination -->
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                        <div style="font-size:18px;font-weight:700;color:#111;">
+                            <span style="opacity:.85">Origin</span> → <span style="opacity:.6">{origin}</span>
+                            <div style="font-size:13px;color:#666;margin-top:4px;"></div>
+                        </div>
+                        <div style="text-align:right">
+                            <div style="font-size:14px;color:#333;font-weight:700">Distance</div>
+                            <div style="font-size:13px;color:#666">{total_distance_miles} mi (Google) · {DAT_miles} mi (DAT)</div>
+                        </div>
+                    </div>
+                    <!-- Grid: left market / right rates -->
+                    <div style="display:flex;gap:16px;">
+                        <!-- Left card: market & multi -->
+                        <div style="flex:1;background:#fff;padding:14px;border-radius:8px;border:1px solid #e6e9ee;box-shadow:0 1px 2px rgba(16,24,40,0.04)">
+                            {market_html}
+                        </div>
+                        <!-- Right card: rates -->
+                        <div style="width:340px;background:#fff;padding:14px;border-radius:8px;border:1px solid #e6e9ee;box-shadow:0 1px 2px rgba(16,24,40,0.04)">
+                            <div style="font-weight:700;color:#111;font-size:15px;margin-bottom:10px">Rates (All-in)</div>
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                                <div style="font-size:13px;color:#666">Buy Rate</div>
+                                <div style="font-size:18px;font-weight:800;color:#0b6cff">${total_cost:,}</div>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                                <div style="font-size:13px;color:#666">Sell Rate</div>
+                                <div style="font-size:18px;font-weight:800;color:#059669">${Final_Rate:,}</div>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                                <div style="font-size:13px;color:#666">Markup</div>
+                                <div style="font-size:15px;font-weight:700">${markup:,}</div>
+                            </div>
+                            <div style="margin-top:6px;font-size:13px;color:#666">
+                                <strong>Correction Factor:</strong> ${int(correction_factor)}
+                            </div>
+                            <hr style="margin:12px 0;border:none;border-top:1px solid #f4f6f8" />
+                            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                <div style="background:#f3f4f6;padding:8px 10px;border-radius:999px;font-size:13px;">Layover: ${adj_layover}</div>
+                                <div style="background:#f3f4f6;padding:8px 10px;border-radius:999px;font-size:13px;">Extra stops: ${adj_extra_stops}</div>
+                                <div style="background:#f3f4f6;padding:8px 10px;border-radius:999px;font-size:13px;">Extra miles: ${int(adj_extra_miles_plus_margin)}</div>
+                            </div>
+                            <div style="margin-top:12px;font-size:13px;color:#6b7280">
+                                <strong>Market info</strong><br>
+                                MCI: {mci_origin} → {mci_destination}
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Footer actions -->
+                    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+                        <button
+                            title="Copy the summarized rate text"
+                            aria-label="Copy rate"
+                            aria-disabled="true"
+                            style="background:#0b6cff;color:#fff;padding:10px 14px;border-radius:8px;border:none;cursor:not-allowed;font-weight:600;box-shadow:0 6px 12px rgba(11,108,255,0.14)">
+                            Copy rate
+                        </button>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -791,26 +871,24 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data):
 
     total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 0)
         
-    with st.container():
-            st.markdown(
-                f"""
-                <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
-                            border-left:6px solid #ffecb5; border-radius:8px;">
-                    <b style="font-size:15px;">Chaos Metrics</b><br><br>
-                    <b>Stops:</b> {Stops}<br>
-                    <b>Volatility:</b> {chaos_data['volatility']}<br>
-                    <b>Skew:</b> {chaos_data['skew']}<br>
-                    <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
-                    <b>Skew Premium:</b> ${chaos_data['skew_premium']}<br>
-                    <b>Chaos Premium:</b> <b>${chaos_data['chaos_premium']}</b><br>
-                    <b>Risk Level:</b> <span style="color: {'red' if chaos_data['risk_level']=="High Risk" else 'orange' if chaos_data['risk_level']=="Moderate Risk" else 'green'};">
-                    {chaos_data['risk_level']}</span><br><br>
-                    <b>Total Markup %:</b>
-                    <span style="font-size:16px; color:#003366;"><b>{total_markup_pct}%</b></span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+   # with st.container():
+    #        st.markdown(
+     #           f"""
+      #          <div style="margin-top:10px; padding:15px; background-color:#fff3cd;
+       #           <b>Stops:</b> {Stops}<br>
+        #            <b>Volatility:</b> {chaos_data['volatility']}<br>
+         #           <b>Skew:</b> {chaos_data['skew']}<br>
+          #          <b>Volatility Premium:</b> ${chaos_data['volatility_premium']}<br>
+           #         <b>Skew Premium:</b> ${chaos_data['skew_premium']}<br>
+            #        <b>Chaos Premium:</b> <b>${chaos_data['chaos_premium']}</b><br>
+             #       <b>Risk Level:</b> <span style="color: {'red' if chaos_data['risk_level']=="High Risk" else 'orange' if chaos_data['risk_level']=="Moderate Risk" else 'green'};">
+              #      {chaos_data['risk_level']}</span><br><br>
+               #     <b>Total Markup %:</b>
+                #    <span style="font-size:16px; color:#003366;"><b>{total_markup_pct}%</b></span>
+                #</div>
+                #""",
+                #unsafe_allow_html=True
+            #)
 
 
 
@@ -1060,7 +1138,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
     st.session_state.quote_history.insert(0, new_quote)
     st.session_state.quote_history = st.session_state.quote_history[:10]  # máximo 10 elementos
 
-    SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data)
+    SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
 
 
 
@@ -1084,6 +1162,10 @@ if st.button("Calculate"):
         
             
 
+        
+        
+            
+
 
         
             
@@ -1093,6 +1175,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
