@@ -104,6 +104,97 @@ st.title("Multis Spot or Contract: Pricing Department")
 # -----------------------------
 # SELECT CONTRACT OR SPOT
 # -----------------------------
+st.markdown("""
+<style>
+/* Container: pastel gradient + frosted card + shadow */
+[data-testid="stSidebar"] {
+    width: 380px;
+    min-width: 380px;
+    background: linear-gradient(180deg, #f8fbfd 0%, #e6f6fb 45%, #e8f7f6 100%);
+    padding: 26px 22px;
+    border-right: 1px solid rgba(22, 31, 45, 0.04);
+    box-shadow: 0 10px 30px rgba(14, 30, 60, 0.06);
+    backdrop-filter: blur(6px);
+    color: #0f1724;
+}
+
+/* Headings and titles */
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    color: #073763 !important;  /* deep blue accent */
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+/* Section headers (markdown ###) */
+[data-testid="stSidebar"] .css-1d391kg { color: #073763 !important; } /* fallback for some versions */
+
+/* Labels and small text */
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] .stMarkdown {
+    color: #0f1724 !important;
+    opacity: 0.9;
+}
+
+/* Inputs styling: number input, select, radio; make them look like pills */
+[data-testid="stSidebar"] .stNumberInput > div,
+[data-testid="stSidebar"] .stRadio,
+[data-testid="stSidebar"] .stSelectbox {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 8px 10px;
+    box-shadow: 0 6px 18px rgba(14, 30, 60, 0.04);
+    border: 1px solid rgba(14,30,60,0.04);
+}
+
+/* Number input inner - remove default borders (works for many versions) */
+[data-testid="stSidebar"] input[type="number"] {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #0f1724;
+    font-weight: 600;
+}
+
+/* Radio buttons labels */
+[data-testid="stSidebar"] .stRadio label, 
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label {
+    color: #0f1724 !important;
+    font-weight: 600;
+}
+
+
+/* Small utility: subtle separators */
+[data-testid="stSidebar"] hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(11,108,255,0.06), rgba(0,0,0,0));
+    margin: 18px 0;
+}
+
+/* Sidebar captions */
+[data-testid="stSidebar"] .stCaption {
+    color: #475569 !important;
+    opacity: 0.9;
+}
+
+/* Make toggles/switches nicer */
+[data-testid="stSidebar"] .stCheckbox>div, 
+[data-testid="stSidebar"] .stSwitch>div {
+    padding: 6px;
+}
+
+/* Responsive safety for narrow windows (won't shrink below 300) */
+@media (max-width: 900px) {
+  [data-testid="stSidebar"]{
+    width: 320px;
+    min-width: 320px;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("### Pricing Mode")
@@ -1175,6 +1266,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
