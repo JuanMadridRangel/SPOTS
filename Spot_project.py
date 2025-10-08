@@ -104,6 +104,7 @@ st.title("Multis Spot or Contract: Pricing Department")
 # -----------------------------
 # SELECT CONTRACT OR SPOT
 # -----------------------------
+
 st.markdown("""
 <style>
 /* Container: pastel gradient + frosted card + shadow */
@@ -193,6 +194,8 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
+
+
 
 with st.sidebar:
     st.markdown("### Pricing Mode")
@@ -605,6 +608,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 
             # after loop: check results
             if spot_result is None:
+                st.warning("No DAT spot/contract rate found (tried MARKET_AREA and EXTENDED_MARKET_AREA).")
                 # fallback: return forecast-based rate with zeros for fuel/high/low
                 return {
                     "rate": average_rate,
@@ -636,7 +640,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
         except Exception as e:
             st.error(f"Error calling DAT Contract logic: {e}")
             return None
-            
+
 # -----------------------------
 # FUNCTION: MCI NUMBERS
 
@@ -976,7 +980,7 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
                         </div>
                         <div style="text-align:right">
                             <div style="font-size:14px;color:#333;font-weight:700">Distance</div>
-                            <div style="font-size:13px;color:#666">{stops} Stop · {total_distance_miles} mi (Google) · {DAT_miles} mi (DAT)</div>
+                            <div style="font-size:13px;color:#666">{stops} stops · {total_distance_miles} mi (Google) · {DAT_miles} mi (DAT)</div>
                         </div>
                     </div>
                     <!-- Grid: left market / right rates -->
@@ -1321,6 +1325,7 @@ if st.button("Calculate"):
         )
    
         
+              
         
             
 
@@ -1337,6 +1342,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
