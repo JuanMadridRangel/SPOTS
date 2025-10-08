@@ -434,7 +434,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                     "origin": origin_spot,
                     "destination": destination_spot,
                     "rateType": rateType,
-                    "equipment": equipment_type,
+                    "equipment": provider_equipment(equipment_type),
                     "includeMyRate": True,
                     "targetEscalation": {
                         "escalationType": "SPECIFIC_AREA_TYPE_AND_SPECIFIC_TIME_FRAME",
@@ -1175,6 +1175,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
