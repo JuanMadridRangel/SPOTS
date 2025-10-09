@@ -549,8 +549,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                     spot_response = requests.post(url_spot, headers=headers, json=spot_body)
                     spot_response.raise_for_status()
                     spot_data = spot_response.json()
-                    if debug:
-                        print(json.dumps(spot_data, indent=2))
+
                 except Exception as e:
                     print("Spot request error:", e)
                     continue
@@ -567,10 +566,10 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 # if API returned errors, and specifically "No rates available.", try next area
                 errors = resp.get("errors")
                 if errors:
-                    print(f"API errors for {area_type}:", errors)
+                    
                     no_rates_flag = any("No rates available" in e.get("message", "") for e in errors)
                     if no_rates_flag:
-                        print(f"No rates available for {area_type}, trying next fallback...")
+                        
                         continue
                     else:
                         # other errors — skip and try next area
@@ -579,7 +578,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 # safe extraction of rate object
                 rate_obj = resp.get("rate")
                 if not rate_obj:
-                    print(f"No 'rate' object for {area_type}")
                     continue
 
                 # extract perTrip safely (could be dict or list)
@@ -608,6 +606,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 
             # after loop: check results
             if spot_result is None:
+                
                 # fallback: return forecast-based rate with zeros for fuel/high/low
                 return {
                     "rate": average_rate,
@@ -1323,6 +1322,7 @@ if st.button("Calculate"):
             hotshot_weight_lbs
         )
    
+     
         
         
               
@@ -1342,6 +1342,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
