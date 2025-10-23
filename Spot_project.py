@@ -1265,7 +1265,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
 
     print(equipment_type)
     if equipment_type == "HOTSHOT":
-        w = hotshot_weight_lbs or 0 
+        w = int(hotshot_weight_lbs) 
         hotshot_factor = 1.0 if w > 10000 else 0.8
         effective_avg = round(effective_avg * hotshot_factor)
         
@@ -1342,6 +1342,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
