@@ -92,6 +92,7 @@ def get_dat_access_token(force_refresh=False):
         return None
 
 
+
 # -----------------------------
 # STREAMLIT INITIALIZATION
 # -----------------------------
@@ -796,7 +797,7 @@ def get_greenscreens_rate(locations, equipment_type):
 # -----------------------------
 # FUNCTION: GOOGLE MAPS ROUTE & PRICING
 # -----------------------------
-def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, blend_label=None, Mark_up=0.1, chaos_premium=0):
+def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, blend_label=None, Mark_up=0.1, chaos_premium=0,equipment_type=None):
 
     if len(locations) < 2:
         return {"error": "At least two valid locations are required"}
@@ -837,10 +838,10 @@ def get_route_info(locations, DAT_miles, DAT_average, effective_avg_rate=None, b
             layover = layover_count * 200
             increase_per_stop = round((stops / 4) * 150, 2) if stops > 4 else 0 
 
-        if stops > 0:
-            base_rate_for_rpm = DAT_average
-        else:
+        if str(equipment_type).strip().upper() == "HOTSHOT":
             base_rate_for_rpm = effective_avg_rate if effective_avg_rate is not None else DAT_average
+        else:
+            base_rate_for_rpm = DAT_average if stops > 0 else (effective_avg_rate or DAT_average)
             
         RPM = base_rate_for_rpm / DAT_miles
         mileage_charge = RPM * total_distance_miles
@@ -1265,9 +1266,11 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
 
     print(equipment_type)
     if equipment_type == "HOTSHOT":
-        w = int(hotshot_weight_lbs) 
+        w = int(hotshot_weight_lbs)
         hotshot_factor = 1.0 if w > 10000 else 0.8
+        print(hotshot_factor)
         effective_avg = round(effective_avg * hotshot_factor)
+        print(effective_avg)
         
 
     if "quote_history" not in st.session_state:
@@ -1281,7 +1284,7 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
     destination_city = to_location.get("city", "Unknown")
     destination_state = to_location.get("stateOrProvince", "Unknown") 
 
-    route_data = get_route_info(locations_input, DAT_miles, DAT_average, effective_avg, blend_label,Mark_up,chaos_data["chaos_premium"])
+    route_data = get_route_info(locations_input, DAT_miles, DAT_average, effective_avg, blend_label,Mark_up,chaos_data["chaos_premium"],equipment_type)
     if not route_data:
         st.error("Error processing route information.")
         return
@@ -1322,7 +1325,8 @@ if st.button("Calculate"):
             hotshot_weight_lbs
         )
    
-     
+        
+        
         
         
               
@@ -1342,6 +1346,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
