@@ -6,6 +6,7 @@ import streamlit as st  # For Streamlit app interface
 from datetime import datetime, timezone
 from collections import defaultdict
 import statistics
+import logging
 
 # -----------------------------
 # CONNECTIONS / CONFIG IMPORTS
@@ -374,6 +375,7 @@ def build_stops_from_locations(locations: list) -> list:
 # FUNCTION: GET DAT RATE DATA
 # -----------------------------
 def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
+    logger = logging.getLogger(__name__)
 
     headers = {
         "Authorization": f"Bearer {st.session_state['DAT_BEARER_TOKEN']}",
@@ -390,13 +392,11 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
         origin = parse_location_string_spots(locations[0])
         destination = parse_location_string_spots(locations[-1])
 
-        # ZIP-only fallback dicts (same structure as chat)
+        # ZIP-only fallback dicts
         origin_zip_only = {"postalCode": origin.get("postalCode")} if origin.get("postalCode") else None
         destination_zip_only = {"postalCode": destination.get("postalCode")} if destination.get("postalCode") else None
 
-        target_escalation = {
-            "escalationType": "BEST_FIT"
-        }
+        target_escalation = {"escalationType": "BEST_FIT"}
 
         def _call_spot(o, d):
             body = [
@@ -416,7 +416,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             data = response.json()
             rate_response_full = data["rateResponses"][0]["response"]
 
-            # If explicit errors include "No rates available" -> treat as no data
             errors = rate_response_full.get("errors")
             if _has_no_rates_error(errors):
                 return None
@@ -426,7 +425,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 
             rate_response = rate_response_full["rate"]
 
-            # IMPORTANT: keep exact return keys you already use
             return {
                 "rate": rate_response["perTrip"]["rateUsd"],
                 "high": rate_response["perTrip"]["highUsd"],
@@ -441,28 +439,30 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             if result is not None:
                 return result
 
-            # Attempt 2: ZIP-only fallback (if possible)
+            # Attempt 2: ZIP-only fallback
             if origin_zip_only and destination_zip_only:
-                st.caption("Retrying DAT Spot with ZIP-only fallback...")
+                logger.info("Retrying DAT Spot with ZIP-only fallback (origin/destination).")
                 result = _call_spot(origin_zip_only, destination_zip_only)
                 if result is not None:
                     return result
 
-            st.warning("No DAT rates available for this lane at the moment.")
+            logger.warning("No DAT rates available for this lane at the moment.")
             return None
 
         except Exception as e:
-            # If attempt 1 fails, try ZIP fallback once (if possible)
+            # If attempt 1 throws, try ZIP fallback once
             if origin_zip_only and destination_zip_only:
-                st.caption(f"DAT Spot full-location failed. Retrying ZIP-only. Error: {e}")
+                logger.warning("DAT Spot full-location failed. Retrying ZIP-only. Error=%s", e)
                 try:
                     result = _call_spot(origin_zip_only, destination_zip_only)
                     if result is not None:
                         return result
                 except Exception as e2:
+                    logger.exception("Error calling DAT Spot API (ZIP fallback).")
                     st.error(f"Error calling DAT Spot API (ZIP fallback): {e2}")
                     return None
 
+            logger.exception("Error calling DAT Spot API.")
             st.error(f"Error calling DAT API: {e}")
             return None
 
@@ -474,7 +474,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
         origin_spot = parse_location_string_spots(locations[0])
         destination_spot = parse_location_string_spots(locations[-1])
 
-        # ZIP-only fallback for the contract spot-subcall
         origin_spot_zip_only = {"postalCode": origin_spot.get("postalCode")} if origin_spot.get("postalCode") else None
         destination_spot_zip_only = {"postalCode": destination_spot.get("postalCode")} if destination_spot.get("postalCode") else None
 
@@ -514,16 +513,16 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             for ym in selected_month_keys:
                 year, month = ym
                 values = monthly_values[ym]
-
                 med_avg = statistics.median(values["avg"])
-                monthly_medians.append(med_avg)
 
+                monthly_medians.append(med_avg)
                 monthly_forecasts.append({
                     "date": f"{year}-{month:02d}-01T00:00:00Z",
                     "forecastUSD": int(med_avg),
                 })
 
             if not monthly_medians:
+                logger.warning("No forecast data available for this lane.")
                 st.warning("No forecast data available for this lane.")
                 return None
 
@@ -574,22 +573,28 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 # Attempt 1: full location
                 try:
                     if debug:
-                        st.caption(f"Trying spot request with specificAreaType={area_type} timeframe={specific_timeframe}")
+                        logger.debug(
+                            "Trying contract spot request. area_type=%s timeframe=%s (full origin/dest)",
+                            area_type, specific_timeframe
+                        )
                     spot_data = _call_contract_spot(origin_spot, destination_spot, area_type)
                 except Exception as e:
                     spot_data = None
                     if debug:
-                        st.caption(f"Spot request error (full): {e}")
+                        logger.debug("Contract spot request error (full): %s", e)
 
                 # Attempt 2: ZIP-only fallback
                 if spot_data is None and origin_spot_zip_only and destination_spot_zip_only:
                     try:
                         if debug:
-                            st.caption("Retrying contract spot with ZIP-only fallback...")
+                            logger.info(
+                                "Retrying contract spot with ZIP-only fallback. area_type=%s timeframe=%s",
+                                area_type, specific_timeframe
+                            )
                         spot_data = _call_contract_spot(origin_spot_zip_only, destination_spot_zip_only, area_type)
                     except Exception as e:
                         if debug:
-                            st.caption(f"Spot request error (zip fallback): {e}")
+                            logger.debug("Contract spot request error (zip fallback): %s", e)
                         spot_data = None
 
                 if spot_data is None:
@@ -606,8 +611,7 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 if errors:
                     if _has_no_rates_error(errors):
                         continue
-                    else:
-                        continue
+                    continue
 
                 rate_obj = resp.get("rate")
                 if not rate_obj:
@@ -661,8 +665,10 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             }
 
         except Exception as e:
+            logger.exception("Error calling DAT Contract logic.")
             st.error(f"Error calling DAT Contract logic: {e}")
             return None
+
 
 
 # -----------------------------
@@ -671,6 +677,9 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 # -----------------------------
 
 def get_MCI_scores(locations, equipment_type, url_MCI):
+    import logging
+    logger = logging.getLogger(__name__)
+
     headers = {
         "Authorization": f"Bearer {st.session_state['DAT_BEARER_TOKEN']}",
         "Content-Type": "application/json"
@@ -707,7 +716,6 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
             resp.raise_for_status()
             data = resp.json()
 
-            # response should be a list; can be []
             if not isinstance(data, list) or not data:
                 return None
 
@@ -732,13 +740,12 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
                     "destination_mci": mci_destination,
                 }
 
-            # force fallback when structure is empty / missing
             raise ValueError("MCI response missing scores on city/state attempt.")
 
         except Exception as e:
             # Attempt 2: ZIP-only fallback (if possible)
             if origin_postal and destination_postal:
-                st.caption("Retrying MCI with ZIP-only fallback...")
+                logger.info("Retrying MCI with ZIP-only fallback (origin/destination). Reason=%s", e)
 
                 origin_params_zip = _build_params(origin, use_zip_only=True)
                 dest_params_zip = _build_params(destination, use_zip_only=True)
@@ -748,7 +755,7 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
                     mci_destination = _fetch_mci(dest_params_zip)
 
                     if mci_origin is None or mci_destination is None:
-                        st.warning("Could not retrieve MCI scores for both locations.")
+                        logger.warning("Could not retrieve MCI scores for both locations (ZIP fallback returned None).")
                         return None
 
                     return {
@@ -757,15 +764,19 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
                     }
 
                 except Exception as e2:
+                    logger.exception("Error retrieving MCI data (ZIP fallback).")
                     st.error(f"Error retrieving MCI data (ZIP fallback): {e2}")
                     return None
 
+            logger.exception("Error retrieving MCI data (city/state attempt).")
             st.error(f"Error retrieving MCI data: {e}")
             return None
 
     except Exception as e:
+        logger.exception("Error retrieving MCI data (outer).")
         st.error(f"Error retrieving MCI data: {e}")
         return None
+
 
 
 # -----------------------------
@@ -1234,6 +1245,9 @@ def calculate_chaos_premiums(DAT_avg, DAT_high, DAT_low, miles, adjusted_base_ra
 # -----------------------------
 
 def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode, user_markup=None, hotshot_weight_lbs=None):
+    import logging
+    logger = logging.getLogger(__name__)
+
     dat_result = get_DAT_data(locations_input, equipment_type, pricing_mode, selected_months)
     if not dat_result:
         st.error("No DAT result returned.")
@@ -1292,15 +1306,14 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
             effective_avg = DAT_average
             blend_label = "100% DAT (stops>0)" if stops > 0 else "100% DAT"
 
-        st.caption(f"Base Rate used for cost calculation: {blend_label}")
+        logger.info("Base Rate used for cost calculation: %s", blend_label)
     else:
         effective_avg = DAT_average
         blend_label = "100% DAT"
-        st.caption("Base Rate used: 100% DAT (no GS data)")
-
+        logger.info("Base Rate used: 100% DAT (no GS data)")
 
     # -----------------------------
-    # Roundtrip / repeats safeguard (prevents RPM inflation when DAT miles come back as 1)
+    # Roundtrip / repeats safeguard
     # -----------------------------
     def _has_repeated_locations(locs):
         return len(set(locs)) < len(locs)
@@ -1312,7 +1325,10 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
     has_repeats = _has_repeated_locations(locations_input)
 
     if suspicious_dat_miles or has_repeats:
-        st.caption("Roundtrip/repeat safeguard triggered. Recomputing DAT miles/rate by segments...")
+        logger.warning(
+            "Roundtrip/repeat safeguard triggered. DAT_miles=%s repeats=%s locations=%s",
+            DAT_miles, has_repeats, locations_input
+        )
 
         seg_dat_miles_sum = 0
         seg_dat_avg_sum = 0
@@ -1332,23 +1348,25 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
             seg_dat_miles_sum += (seg_miles or 0)
             seg_dat_avg_sum += (seg_avg or 0)
 
-        # override only if sums are usable
         if seg_dat_miles_sum > 1 and seg_dat_avg_sum > 0:
             old_DAT_average = DAT_average
             DAT_miles = seg_dat_miles_sum
             DAT_average = seg_dat_avg_sum
 
-            # keep effective_avg consistent when stops == 0 (blending/hotshot factor below)
+            logger.info(
+                "Using segment-summed DAT values. DAT_miles=%s DAT_average=%s",
+                DAT_miles, DAT_average
+            )
+
             stops = max(0, len(locations_input) - 2)
             if stops == 0 and old_DAT_average:
                 try:
                     ratio = DAT_average / old_DAT_average
                     effective_avg = round(effective_avg * ratio)
                 except Exception:
-                    # keep original effective_avg if rescale fails
-                    pass
+                    logger.exception("Failed to rescale effective_avg after segment override.")
 
-    # HOTSHOT logic (same behavior, without prints)
+    # HOTSHOT logic
     if equipment_type == "HOTSHOT":
         w = int(hotshot_weight_lbs)
         hotshot_factor = 1.0 if w > 10000 else 0.8
@@ -1433,6 +1451,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
