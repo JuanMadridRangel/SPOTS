@@ -380,59 +380,92 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
         "Content-Type": "application/json"
     }
 
-   
+    def _has_no_rates_error(errors):
+        if not errors:
+            return False
+        return any("No rates available" in (e.get("message", "") or "") for e in errors)
+
     if pricing_mode == "Spot":
 
         origin = parse_location_string_spots(locations[0])
         destination = parse_location_string_spots(locations[-1])
 
-        print("Origin:", origin)
-        print("Destination:", destination)
-        
+        # ZIP-only fallback dicts (same structure as chat)
+        origin_zip_only = {"postalCode": origin.get("postalCode")} if origin.get("postalCode") else None
+        destination_zip_only = {"postalCode": destination.get("postalCode")} if destination.get("postalCode") else None
+
         target_escalation = {
             "escalationType": "BEST_FIT"
         }
 
+        def _call_spot(o, d):
+            body = [
+                {
+                    "origin": o,
+                    "destination": d,
+                    "rateType": "SPOT",
+                    "equipment": provider_equipment(equipment_type),
+                    "includeMyRate": True,
+                    "targetEscalation": target_escalation
+                }
+            ]
 
-        body = [
-            {
-                "origin": origin,
-                "destination": destination,
-                "rateType": "SPOT",
-                "equipment": provider_equipment(equipment_type),
-                "includeMyRate": True,
-                "targetEscalation": target_escalation
-            }
-        ]
-
-        try:
             response = requests.post(url_spot, headers=headers, json=body)
-            print("DAT status:", response.status_code)
-            print("DAT response:", response.text)
             response.raise_for_status()
 
             data = response.json()
             rate_response_full = data["rateResponses"][0]["response"]
 
+            # If explicit errors include "No rates available" -> treat as no data
+            errors = rate_response_full.get("errors")
+            if _has_no_rates_error(errors):
+                return None
+
             if "rate" not in rate_response_full:
-                st.warning("No DAT rates available for this lane at the moment.")
                 return None
 
             rate_response = rate_response_full["rate"]
 
+            # IMPORTANT: keep exact return keys you already use
             return {
                 "rate": rate_response["perTrip"]["rateUsd"],
                 "high": rate_response["perTrip"]["highUsd"],
                 "low": rate_response["perTrip"]["lowUsd"],
                 "miles": rate_response["mileage"],
                 "fuel_per_trip": rate_response.get("averageFuelSurchargePerTripUsd")
-
             }
 
+        # Attempt 1: full location
+        try:
+            result = _call_spot(origin, destination)
+            if result is not None:
+                return result
+
+            # Attempt 2: ZIP-only fallback (if possible)
+            if origin_zip_only and destination_zip_only:
+                st.caption("Retrying DAT Spot with ZIP-only fallback...")
+                result = _call_spot(origin_zip_only, destination_zip_only)
+                if result is not None:
+                    return result
+
+            st.warning("No DAT rates available for this lane at the moment.")
+            return None
+
         except Exception as e:
+            # If attempt 1 fails, try ZIP fallback once (if possible)
+            if origin_zip_only and destination_zip_only:
+                st.caption(f"DAT Spot full-location failed. Retrying ZIP-only. Error: {e}")
+                try:
+                    result = _call_spot(origin_zip_only, destination_zip_only)
+                    if result is not None:
+                        return result
+                except Exception as e2:
+                    st.error(f"Error calling DAT Spot API (ZIP fallback): {e2}")
+                    return None
+
             st.error(f"Error calling DAT API: {e}")
             return None
-        
+
     elif pricing_mode == "Contract":
 
         origin = parse_location_string_contract(locations[0])
@@ -441,12 +474,12 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
         origin_spot = parse_location_string_spots(locations[0])
         destination_spot = parse_location_string_spots(locations[-1])
 
-        print("Origin:", origin_spot)
-        print("Destination:", destination_spot)
+        # ZIP-only fallback for the contract spot-subcall
+        origin_spot_zip_only = {"postalCode": origin_spot.get("postalCode")} if origin_spot.get("postalCode") else None
+        destination_spot_zip_only = {"postalCode": destination_spot.get("postalCode")} if destination_spot.get("postalCode") else None
 
         try:
-
-           # --------- Forecast Request (Contract base rate + miles) ---------
+            # --------- Forecast Request (Contract base rate + miles) ---------
             body_forecast = {
                 "origin": origin,
                 "destination": destination,
@@ -459,8 +492,6 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             data_forecast = response_forecast.json()
 
             per_trip_data = data_forecast.get("forecasts", {}).get("perTrip", [])
-            monthly_values = defaultdict(list)
-
             monthly_values = defaultdict(lambda: {"avg": []})
 
             for point in per_trip_data:
@@ -472,10 +503,8 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
 
                 date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 year_month = (date.year, date.month)
-
                 monthly_values[year_month]["avg"].append(avg_usd)
 
-           
             sorted_months = sorted(monthly_values.keys())
             selected_month_keys = sorted_months[:selected_months]
 
@@ -485,9 +514,8 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
             for ym in selected_month_keys:
                 year, month = ym
                 values = monthly_values[ym]
-                
-                med_avg  = statistics.median(values["avg"])
 
+                med_avg = statistics.median(values["avg"])
                 monthly_medians.append(med_avg)
 
                 monthly_forecasts.append({
@@ -500,38 +528,31 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 return None
 
             average_rate = sum(monthly_medians) / len(monthly_medians)
-
             mileage = data_forecast.get("mileage", 0)
 
-            for point in monthly_forecasts:
-                print(f"{point['date']} - Avg: ${point['forecastUSD']}")
-
-
             # --- Spot request for fuel, high, low (Contract Mode) ---
-
             if selected_months >= 12:
                 specific_timeframe = "180_DAYS"
-                rateType = 'CONTRACT'
+                rateType = "CONTRACT"
             elif selected_months >= 3:
                 specific_timeframe = "90_DAYS"
-                rateType = 'SPOT'
+                rateType = "SPOT"
             elif selected_months == 2:
                 specific_timeframe = "60_DAYS"
-                rateType = 'SPOT'
+                rateType = "SPOT"
             else:
                 specific_timeframe = "30_DAYS"
-                rateType = 'SPOT'
+                rateType = "SPOT"
 
-            # --- Spot/Contract request with simple fallback to EXTENDED_MARKET_AREA ---
             area_sequence = ["MARKET_AREA", "EXTENDED_MARKET_AREA"]
             spot_result = None
             debug = True
 
-            for area_type in area_sequence:
+            def _call_contract_spot(o, d, area_type):
                 spot_body = [
                     {
-                        "origin": origin_spot,
-                        "destination": destination_spot,
+                        "origin": o,
+                        "destination": d,
                         "rateType": rateType,
                         "equipment": provider_equipment(equipment_type),
                         "includeMyRate": True,
@@ -543,45 +564,55 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                     }
                 ]
 
-                if debug:
-                    print(f"Trying spot request with specificAreaType={area_type} timeframe={specific_timeframe}")
+                spot_response = requests.post(url_spot, headers=headers, json=spot_body)
+                spot_response.raise_for_status()
+                return spot_response.json()
 
+            for area_type in area_sequence:
+                spot_data = None
+
+                # Attempt 1: full location
                 try:
-                    spot_response = requests.post(url_spot, headers=headers, json=spot_body)
-                    spot_response.raise_for_status()
-                    spot_data = spot_response.json()
-
+                    if debug:
+                        st.caption(f"Trying spot request with specificAreaType={area_type} timeframe={specific_timeframe}")
+                    spot_data = _call_contract_spot(origin_spot, destination_spot, area_type)
                 except Exception as e:
-                    print("Spot request error:", e)
+                    spot_data = None
+                    if debug:
+                        st.caption(f"Spot request error (full): {e}")
+
+                # Attempt 2: ZIP-only fallback
+                if spot_data is None and origin_spot_zip_only and destination_spot_zip_only:
+                    try:
+                        if debug:
+                            st.caption("Retrying contract spot with ZIP-only fallback...")
+                        spot_data = _call_contract_spot(origin_spot_zip_only, destination_spot_zip_only, area_type)
+                    except Exception as e:
+                        if debug:
+                            st.caption(f"Spot request error (zip fallback): {e}")
+                        spot_data = None
+
+                if spot_data is None:
                     continue
 
-                # check for rateResponses and errors
                 rate_responses = spot_data.get("rateResponses", [])
                 if not rate_responses:
-                    print(f"No rateResponses for area_type={area_type}")
                     continue
 
                 first = rate_responses[0]
                 resp = first.get("response", {})
 
-                # if API returned errors, and specifically "No rates available.", try next area
                 errors = resp.get("errors")
                 if errors:
-                    
-                    no_rates_flag = any("No rates available" in e.get("message", "") for e in errors)
-                    if no_rates_flag:
-                        
+                    if _has_no_rates_error(errors):
                         continue
                     else:
-                        # other errors — skip and try next area
                         continue
 
-                # safe extraction of rate object
                 rate_obj = resp.get("rate")
                 if not rate_obj:
                     continue
 
-                # extract perTrip safely (could be dict or list)
                 per_trip = rate_obj.get("perTrip")
                 if isinstance(per_trip, list) and len(per_trip) > 0:
                     per_trip_entry = per_trip[0]
@@ -590,12 +621,13 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 else:
                     per_trip_entry = {}
 
-                fuel_per_trip = rate_obj.get("averageFuelSurchargePerTripUsd",
-                                            per_trip_entry.get("averageFuelSurchargePerTripUsd", 0))
+                fuel_per_trip = rate_obj.get(
+                    "averageFuelSurchargePerTripUsd",
+                    per_trip_entry.get("averageFuelSurchargePerTripUsd", 0)
+                )
                 contract_highUSD = per_trip_entry.get("highUsd", rate_obj.get("highUsd", 0))
-                contract_lowUSD  = per_trip_entry.get("lowUsd",  rate_obj.get("lowUsd", 0))
+                contract_lowUSD = per_trip_entry.get("lowUsd", rate_obj.get("lowUsd", 0))
 
-                # we have a valid result — store and break
                 spot_result = {
                     "fuel_per_trip": fuel_per_trip,
                     "contract_highUSD": contract_highUSD,
@@ -603,12 +635,9 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                     "used_area_type": area_type,
                     "raw": spot_data
                 }
-                break  # stop trying further fallbacks
+                break
 
-            # after loop: check results
             if spot_result is None:
-                
-                # fallback: return forecast-based rate with zeros for fuel/high/low
                 return {
                     "rate": average_rate,
                     "miles": mileage,
@@ -618,14 +647,9 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                     "contract_lowUSD": 0
                 }
 
-            # success: build return using spot_result
             fuel_per_trip = spot_result["fuel_per_trip"]
             contract_highUSD = spot_result["contract_highUSD"]
             contract_lowUSD = spot_result["contract_lowUSD"]
-
-            print('high:', contract_highUSD)
-            print('low:', contract_lowUSD)
-            print('fuel:', fuel_per_trip)
 
             return {
                 "rate": average_rate,
@@ -634,11 +658,12 @@ def get_DAT_data(locations, equipment_type, pricing_mode, selected_months):
                 "monthly_forecasts": monthly_forecasts,
                 "contract_highUSD": contract_highUSD,
                 "contract_lowUSD": contract_lowUSD
-            }   
+            }
 
         except Exception as e:
             st.error(f"Error calling DAT Contract logic: {e}")
             return None
+
 
 # -----------------------------
 # FUNCTION: MCI NUMBERS
@@ -652,74 +677,95 @@ def get_MCI_scores(locations, equipment_type, url_MCI):
     }
 
     try:
-        # Parse origin and destination using existing logic
         origin = parse_location_string_spots(locations[0])
         destination = parse_location_string_spots(locations[-1])
 
-        print(origin,destination)
+        origin_postal = origin.get("postalCode")
+        destination_postal = destination.get("postalCode")
 
-        # Prepare both MCI requests
-        mci_origin_body = (
+        def _build_params(loc_dict, use_zip_only=False):
+            params = {
+                "page": 0,
+                "pageSize": 10,
+                "areaType": "MARKET_AREA",
+                "direction": "OUTBOUND",
+                "equipmentCategory": provider_equipment(equipment_type),
+                "timeframe": "PREVIOUS_BUSINESS_DAY",
+                "country": "US",
+            }
 
-            f"page=0"
-            f"&pageSize=10"
-            f"&areaType=MARKET_AREA"
-            f"&direction=OUTBOUND"
-            f"&equipmentCategory={provider_equipment(equipment_type)}"
-            f"&timeframe=PREVIOUS_BUSINESS_DAY"
-            f"&city={origin.get('city')}"
-            f"&stateOrProvince={origin.get('stateOrProvince')}"
-            f"&country=US"
-            
-            
-            
-        )
+            if use_zip_only and loc_dict.get("postalCode"):
+                params["postalCode"] = loc_dict.get("postalCode")
+            else:
+                params["city"] = loc_dict.get("city")
+                params["stateOrProvince"] = loc_dict.get("stateOrProvince")
 
-        mci_destination_body = (
+            return params
 
-            f"page=0"
-            f"&pageSize=10"
-            f"&areaType=MARKET_AREA"
-            f"&direction=OUTBOUND"
-            f"&equipmentCategory={provider_equipment(equipment_type)}"
-            f"&timeframe=PREVIOUS_BUSINESS_DAY"
-            f"&city={destination.get('city')}"
-            f"&stateOrProvince={destination.get('stateOrProvince')}"
-            f"&country=US"
-            
-            
-            
-        )
+        def _fetch_mci(params):
+            resp = requests.get(url_MCI, headers=headers, params=params)
+            resp.raise_for_status()
+            data = resp.json()
 
-        # Make requests
-        origin_response = requests.get(url_MCI,headers=headers, params = mci_origin_body)
-        destination_response = requests.get(url_MCI, headers=headers,params = mci_destination_body)
+            # response should be a list; can be []
+            if not isinstance(data, list) or not data:
+                return None
 
-        origin_response.raise_for_status()
-        destination_response.raise_for_status()
+            first = data[0]
+            indexes = first.get("marketConditionsIndexes") or []
+            if not indexes:
+                return None
 
-        origin_data = origin_response.json()
-        destination_data = destination_response.json()
+            return indexes[0].get("mciScore")
 
-        # Extract values — validate structure before indexing
-        mci_origin = origin_data[0]["marketConditionsIndexes"][0]["mciScore"]
-        mci_destination = destination_data[0]["marketConditionsIndexes"][0]["mciScore"]
+        # Attempt 1: city/state
+        try:
+            origin_params = _build_params(origin, use_zip_only=False)
+            dest_params = _build_params(destination, use_zip_only=False)
 
-        print(mci_origin,mci_destination)
+            mci_origin = _fetch_mci(origin_params)
+            mci_destination = _fetch_mci(dest_params)
 
-        if mci_origin is None or mci_destination is None:
-            st.warning("Could not retrieve MCI scores for both locations.")
+            if mci_origin is not None and mci_destination is not None:
+                return {
+                    "origin_mci": mci_origin,
+                    "destination_mci": mci_destination,
+                }
+
+            # force fallback when structure is empty / missing
+            raise ValueError("MCI response missing scores on city/state attempt.")
+
+        except Exception as e:
+            # Attempt 2: ZIP-only fallback (if possible)
+            if origin_postal and destination_postal:
+                st.caption("Retrying MCI with ZIP-only fallback...")
+
+                origin_params_zip = _build_params(origin, use_zip_only=True)
+                dest_params_zip = _build_params(destination, use_zip_only=True)
+
+                try:
+                    mci_origin = _fetch_mci(origin_params_zip)
+                    mci_destination = _fetch_mci(dest_params_zip)
+
+                    if mci_origin is None or mci_destination is None:
+                        st.warning("Could not retrieve MCI scores for both locations.")
+                        return None
+
+                    return {
+                        "origin_mci": mci_origin,
+                        "destination_mci": mci_destination,
+                    }
+
+                except Exception as e2:
+                    st.error(f"Error retrieving MCI data (ZIP fallback): {e2}")
+                    return None
+
+            st.error(f"Error retrieving MCI data: {e}")
             return None
-
-        return {
-            "origin_mci": mci_origin,
-            "destination_mci": mci_destination,
-        }
 
     except Exception as e:
         st.error(f"Error retrieving MCI data: {e}")
         return None
-
 
 
 # -----------------------------
@@ -1033,8 +1079,6 @@ def SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
                 unsafe_allow_html=True
             )
 
-
-    total_markup_pct = round(((Final_Rate - total_cost) / total_cost) * 100, 0)
         
    # with st.container():
     #        st.markdown(
@@ -1208,7 +1252,6 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         DAT_low = dat_result["contract_lowUSD"]
 
     mci_data = get_MCI_scores(locations_input, equipment_type, url_MCI)
-
     if not mci_data:
         st.error("Failed to retrieve MCI data.")
         return
@@ -1222,7 +1265,6 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
 
     adjusted_base_rate = raw_avg * (1 + Mark_up)
 
-    
     chaos_data = calculate_chaos_premiums(
         raw_avg,
         DAT_high,
@@ -1231,47 +1273,86 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         adjusted_base_rate
     )
 
-
-    
     gs_data = get_greenscreens_rate(locations_input, equipment_type)
     if gs_data:
         total_all_in = gs_data["rate_per_mile"]
         confidence = gs_data["confidence"]
 
-        # calcula stops ANTES del if
         stops = max(0, len(locations_input) - 2)
 
         use_gs = True
         if pricing_mode == "Contract":
             use_gs = False
 
-       
         if use_gs and stops == 0:
-
             effective_avg, blend_label = get_effective_avg_rate_with_blending(
                 DAT_average, total_all_in, confidence
             )
         else:
-
             effective_avg = DAT_average
             blend_label = "100% DAT (stops>0)" if stops > 0 else "100% DAT"
 
         st.caption(f"Base Rate used for cost calculation: {blend_label}")
     else:
-        total_all_in = 0
-        confidence = 0
         effective_avg = DAT_average
         blend_label = "100% DAT"
         st.caption("Base Rate used: 100% DAT (no GS data)")
 
-    print(equipment_type)
+
+    # -----------------------------
+    # Roundtrip / repeats safeguard (prevents RPM inflation when DAT miles come back as 1)
+    # -----------------------------
+    def _has_repeated_locations(locs):
+        return len(set(locs)) < len(locs)
+
+    def _segment_pairs(locs):
+        return [(locs[i], locs[i + 1]) for i in range(len(locs) - 1)]
+
+    suspicious_dat_miles = (not DAT_miles) or (DAT_miles <= 1)
+    has_repeats = _has_repeated_locations(locations_input)
+
+    if suspicious_dat_miles or has_repeats:
+        st.caption("Roundtrip/repeat safeguard triggered. Recomputing DAT miles/rate by segments...")
+
+        seg_dat_miles_sum = 0
+        seg_dat_avg_sum = 0
+
+        for idx, (o, d) in enumerate(_segment_pairs(locations_input), start=1):
+            seg_locations = [o, d]
+            seg_dat = get_DAT_data(seg_locations, equipment_type, pricing_mode, selected_months)
+            if not seg_dat:
+                st.error(f"No DAT result returned for segment {idx}: {o} -> {d}")
+                return
+
+            seg_raw = seg_dat["rate"]
+            seg_fuel = seg_dat["fuel_per_trip"]
+            seg_miles = seg_dat["miles"]
+            seg_avg = seg_raw + round(seg_fuel, 0)
+
+            seg_dat_miles_sum += (seg_miles or 0)
+            seg_dat_avg_sum += (seg_avg or 0)
+
+        # override only if sums are usable
+        if seg_dat_miles_sum > 1 and seg_dat_avg_sum > 0:
+            old_DAT_average = DAT_average
+            DAT_miles = seg_dat_miles_sum
+            DAT_average = seg_dat_avg_sum
+
+            # keep effective_avg consistent when stops == 0 (blending/hotshot factor below)
+            stops = max(0, len(locations_input) - 2)
+            if stops == 0 and old_DAT_average:
+                try:
+                    ratio = DAT_average / old_DAT_average
+                    effective_avg = round(effective_avg * ratio)
+                except Exception:
+                    # keep original effective_avg if rescale fails
+                    pass
+
+    # HOTSHOT logic (same behavior, without prints)
     if equipment_type == "HOTSHOT":
         w = int(hotshot_weight_lbs)
         hotshot_factor = 1.0 if w > 10000 else 0.8
-        print(hotshot_factor)
         effective_avg = round(effective_avg * hotshot_factor)
-        print(effective_avg)
-        
 
     if "quote_history" not in st.session_state:
         st.session_state.quote_history = []
@@ -1282,17 +1363,24 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
     origin_city = from_location.get("city", "Unknown")
     origin_state = from_location.get("stateOrProvince", "Unknown")
     destination_city = to_location.get("city", "Unknown")
-    destination_state = to_location.get("stateOrProvince", "Unknown") 
+    destination_state = to_location.get("stateOrProvince", "Unknown")
 
-    route_data = get_route_info(locations_input, DAT_miles, DAT_average, effective_avg, blend_label,Mark_up,chaos_data["chaos_premium"],equipment_type)
+    route_data = get_route_info(
+        locations_input,
+        DAT_miles,
+        DAT_average,
+        effective_avg,
+        blend_label,
+        Mark_up,
+        chaos_data["chaos_premium"],
+        equipment_type
+    )
     if not route_data:
         st.error("Error processing route information.")
         return
-    
-    final_rate =  route_data["final_rate"]
-    lane_display = f"{origin_city}, {origin_state} → {destination_city}, {destination_state}"  
 
-    
+    final_rate = route_data["final_rate"]
+    lane_display = f"{origin_city}, {origin_state} → {destination_city}, {destination_state}"
 
     new_quote = {
         "equipment": equipment_type,
@@ -1301,12 +1389,10 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
         "rate": final_rate
     }
 
-
     st.session_state.quote_history.insert(0, new_quote)
-    st.session_state.quote_history = st.session_state.quote_history[:10]  # máximo 10 elementos
+    st.session_state.quote_history = st.session_state.quote_history[:10]
 
-    SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data,pricing_mode)
-
+    SHOW_RESULT(route_data, mci_data, gs_data, Mark_up, chaos_data, pricing_mode)
 
 
 # -----------------------------
@@ -1329,6 +1415,7 @@ if st.button("Calculate"):
         
         
         
+        
               
         
             
@@ -1346,6 +1433,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
