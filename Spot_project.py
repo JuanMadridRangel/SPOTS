@@ -1442,3 +1442,4 @@ def run_pricing_flow(locations_input, equipment_type, pricing_mode, markup_mode,
 
 
 
+
