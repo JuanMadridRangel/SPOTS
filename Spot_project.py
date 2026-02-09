@@ -316,15 +316,15 @@ def calculate_auto_markup(mci_data, equipment_type):
 
     # Base por equipo
     if equipment_type == "VAN":
-        base_markup = 0.08
-    elif equipment_type in ["REEFER", "FLATBED"]:
         base_markup = 0.12
+    elif equipment_type in ["REEFER", "FLATBED"]:
+        base_markup = 0.16
     elif equipment_type == "STEPDECK":
-        base_markup = 0.12 + 0.06   # Flatbed (12%) + 6 pp = 18%
+        base_markup = 0.16 + 0.06   # Flatbed (12%) + 6 pp = 18%
     elif equipment_type == "CONESTOGA":
-        base_markup = 0.12 + 0.08   # Flatbed (12%) + 8 pp = 20%
+        base_markup = 0.16 + 0.08   # Flatbed (12%) + 8 pp = 20%
     else:
-        base_markup = 0.10
+        base_markup = 0.12
 
     origin_rules = [
         (lambda x: x >= 90, 0.02),
@@ -1451,6 +1451,7 @@ if st.button("Calculate"):
    
         
         
+
 
 
 
